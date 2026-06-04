@@ -1,0 +1,7 @@
+siteTitle=SHUSHAN
+nickname=书山压力大
+phone=181-123-96633
+email=66646937@qq.com
+bilibiliVmid=74399560
+bilibiliHomepage=https://space.bilibili.com/74399560?spm_id_from=333.1007.0.0
+fallbackAvatar=assets/external/bilibili-avatar.jpg
