@@ -23,19 +23,20 @@ const tabTitleSuffix = "ciallo～(∠・ω< )⌒☆";
 const updateTabTitle = () => {
   document.title = `${profileData.nickname} ${tabTitleSuffix}`;
 };
-const updateFavicon = (href = profileData.avatar) => {
+const faviconPath = "assets/external/favicon-circle.png";
+const updateFavicon = () => {
   let favicon = document.querySelector('link[rel~="icon"]');
   if (!favicon) {
     favicon = document.createElement("link");
     favicon.rel = "icon";
     document.head.append(favicon);
   }
-  favicon.type = "image/jpeg";
-  favicon.href = href;
+  favicon.type = "image/png";
+  favicon.href = faviconPath;
 };
 
 updateTabTitle();
-updateFavicon(profileData.avatar);
+updateFavicon();
 
 const headerContact = document.querySelector("[data-header-contact]");
 
@@ -875,7 +876,6 @@ const updateHeaderAvatarFromBilibili = async () => {
     const avatar = normalizeBilibiliImage(payload?.data?.face || "");
     if (avatar && (await imageExists(avatar))) {
       renderHeaderContact(avatar);
-      updateFavicon(avatar);
     }
   } catch {
     // Keep the local fallback avatar from the maintenance entry.
@@ -931,7 +931,6 @@ const updateBilibiliModuleFromApi = async () => {
     const ownerAvatar = normalizeBilibiliImage(video.owner?.face || "");
     if (ownerAvatar && (await imageExists(ownerAvatar))) {
       renderHeaderContact(ownerAvatar);
-      updateFavicon(ownerAvatar);
     }
     renderExternalModule("[data-bilibili-module]", dynamicData, root?._externalOptions || { kicker: "Bilibili" });
     document.querySelector("[data-bilibili-module]").dataset.biliStatus = method;
@@ -950,11 +949,13 @@ const fitExternalCard = (root) => {
   const apply = () => {
     if (window.matchMedia("(max-width: 720px)").matches) {
       root.style.removeProperty("--external-box-height");
+      root.style.removeProperty("--external-synced-image-height");
       body.style.setProperty("--external-text-scale", "1");
       root.dataset.fitReady = "true";
       return;
     }
-    const imageHeight = Math.round(imageBox.getBoundingClientRect().height);
+    const syncedImageHeight = Number.parseFloat(root.style.getPropertyValue("--external-synced-image-height"));
+    const imageHeight = Math.round(syncedImageHeight || imageBox.getBoundingClientRect().height);
     if (!imageHeight) return;
     root.style.setProperty("--external-box-height", `${imageHeight}px`);
     body.style.setProperty("--external-text-scale", "1");
@@ -985,7 +986,22 @@ const fitExternalCard = (root) => {
 };
 
 const syncExternalModuleHeights = () => {
-  document.querySelectorAll(".external-card").forEach((root) => root._externalApply?.());
+  const cards = [...document.querySelectorAll(".external-card")];
+  cards.forEach((root) => root.style.removeProperty("--external-card-min-height"));
+  cards.forEach((root) => root.style.removeProperty("--external-synced-image-height"));
+  cards.forEach((root) => root._externalApply?.());
+  if (window.matchMedia("(max-width: 720px)").matches) return;
+  requestAnimationFrame(() => {
+    const imageHeights = cards.map((root) => Math.ceil(root.querySelector(".external-image")?.getBoundingClientRect().height || 0));
+    const maxImageHeight = Math.max(...imageHeights, 0);
+    if (maxImageHeight) {
+      cards.forEach((root) => root.style.setProperty("--external-synced-image-height", `${maxImageHeight}px`));
+      cards.forEach((root) => root._externalApply?.());
+    }
+    const maxHeight = Math.max(...cards.map((root) => Math.ceil(root.getBoundingClientRect().height)), 0);
+    if (!maxHeight) return;
+    cards.forEach((root) => root.style.setProperty("--external-card-min-height", `${maxHeight}px`));
+  });
 };
 
 const maintainedBilibiliModule = {

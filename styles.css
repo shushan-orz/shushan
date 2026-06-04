@@ -225,11 +225,18 @@ h1 {
 }
 
 .external-stats em {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
   padding: 6px 8px;
   border: 1px solid rgba(244, 239, 231, 0.13);
   color: var(--muted);
   font-size: 0.78rem;
   font-style: normal;
+  line-height: 1.15;
+  text-align: center;
+  white-space: nowrap;
 }
 
 .detail-strip {
@@ -810,6 +817,7 @@ h1 {
   align-items: stretch;
   gap: 18px;
   padding: 16px;
+  min-height: var(--external-card-min-height, auto);
 }
 
 .external-card > * {
@@ -847,8 +855,8 @@ h1 {
 .fanqie-card .external-image {
   aspect-ratio: 3 / 4;
   width: auto;
-  height: clamp(166px, 19.6vw, 210px);
-  max-height: 210px;
+  height: var(--external-synced-image-height, clamp(166px, 19.6vw, 210px));
+  max-height: var(--external-synced-image-height, 210px);
 }
 
 .fanqie-card .external-image img {
@@ -1053,6 +1061,7 @@ h1 {
   .external-card {
     gap: 14px;
     padding: 12px;
+    min-height: auto;
   }
 
   .external-body {
@@ -1096,6 +1105,17 @@ h1 {
     min-height: 34px;
     padding: 7px 8px;
     text-align: center;
+    white-space: nowrap;
+  }
+
+  .fanqie-card .external-stats {
+    display: flex;
+    grid-template-columns: none;
+  }
+
+  .fanqie-card .external-stats em {
+    width: fit-content;
+    max-width: 100%;
   }
 
   .module-actions {
@@ -1110,29 +1130,26 @@ h1 {
   }
 
   .fanqie-card {
-    grid-template-columns: minmax(92px, 0.38fr) minmax(0, 1fr);
-    align-items: start;
+    grid-template-columns: 1fr;
+    align-items: stretch;
   }
 
   .fanqie-card .external-image {
     width: 100%;
     height: auto;
+    aspect-ratio: 16 / 9;
     max-height: none;
   }
 
   .fanqie-card .external-body {
-    min-height: 0;
-  }
-
-  .fanqie-card .external-body h2 {
-    font-size: clamp(1rem, 5.5vw, 1.45rem);
+    min-height: auto;
   }
 
   .fanqie-card .external-description {
     display: -webkit-box;
     overflow: hidden;
     -webkit-box-orient: vertical;
-    -webkit-line-clamp: 5;
+    -webkit-line-clamp: 8;
   }
 
   .detail-strip {
