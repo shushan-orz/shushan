@@ -19,7 +19,23 @@ const profileData = {
   bilibiliHomepage: getProfileValue("bilibiliHomepage", content.bilibiliModule.homepage),
 };
 
-document.title = `${profileData.siteTitle} | Portfolio`;
+const tabTitleSuffix = "ciallo～(∠・ω< )⌒☆";
+const updateTabTitle = () => {
+  document.title = `${profileData.nickname} ${tabTitleSuffix}`;
+};
+const updateFavicon = (href = profileData.avatar) => {
+  let favicon = document.querySelector('link[rel~="icon"]');
+  if (!favicon) {
+    favicon = document.createElement("link");
+    favicon.rel = "icon";
+    document.head.append(favicon);
+  }
+  favicon.type = "image/jpeg";
+  favicon.href = href;
+};
+
+updateTabTitle();
+updateFavicon(profileData.avatar);
 
 const headerContact = document.querySelector("[data-header-contact]");
 
@@ -857,7 +873,10 @@ const updateHeaderAvatarFromBilibili = async () => {
   try {
     const { payload } = await requestBilibiliUserInfo(profileData.bilibiliVmid);
     const avatar = normalizeBilibiliImage(payload?.data?.face || "");
-    if (avatar && (await imageExists(avatar))) renderHeaderContact(avatar);
+    if (avatar && (await imageExists(avatar))) {
+      renderHeaderContact(avatar);
+      updateFavicon(avatar);
+    }
   } catch {
     // Keep the local fallback avatar from the maintenance entry.
   }
@@ -910,7 +929,10 @@ const updateBilibiliModuleFromApi = async () => {
       source: "",
     };
     const ownerAvatar = normalizeBilibiliImage(video.owner?.face || "");
-    if (ownerAvatar && (await imageExists(ownerAvatar))) renderHeaderContact(ownerAvatar);
+    if (ownerAvatar && (await imageExists(ownerAvatar))) {
+      renderHeaderContact(ownerAvatar);
+      updateFavicon(ownerAvatar);
+    }
     renderExternalModule("[data-bilibili-module]", dynamicData, root?._externalOptions || { kicker: "Bilibili" });
     document.querySelector("[data-bilibili-module]").dataset.biliStatus = method;
     syncExternalModuleHeights();
