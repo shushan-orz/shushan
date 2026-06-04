@@ -948,6 +948,12 @@ const fitExternalCard = (root) => {
   if (!imageBox || !body) return;
 
   const apply = () => {
+    if (window.matchMedia("(max-width: 720px)").matches) {
+      root.style.removeProperty("--external-box-height");
+      body.style.setProperty("--external-text-scale", "1");
+      root.dataset.fitReady = "true";
+      return;
+    }
     const imageHeight = Math.round(imageBox.getBoundingClientRect().height);
     if (!imageHeight) return;
     root.style.setProperty("--external-box-height", `${imageHeight}px`);
