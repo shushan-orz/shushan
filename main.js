@@ -152,6 +152,7 @@ const renderLevelProject = (project, index) => {
 const imageExists = (src) =>
   new Promise((resolve) => {
     const image = new Image();
+    image.referrerPolicy = "no-referrer";
     image.onload = () => resolve(true);
     image.onerror = () => resolve(false);
     image.src = src;
@@ -755,7 +756,7 @@ const renderExternalModule = (selector, data, options = {}) => {
   const fallbackImage = data.fallbackImage || data.image;
   root.innerHTML = `
     <div class="external-image" role="img" aria-label="${data.title}">
-      <img src="${data.image}" alt="${data.title}" loading="lazy">
+      <img src="${data.image}" alt="${data.title}" loading="lazy" referrerpolicy="no-referrer">
     </div>
     <div class="external-body">
       <span>${options.kicker || "External Link"}</span>
@@ -806,7 +807,7 @@ const requestJsonp = (url) =>
     const timeout = window.setTimeout(() => {
       cleanup();
       reject(new Error("Bilibili request timed out"));
-    }, 9000);
+    }, 20000);
     const cleanup = () => {
       window.clearTimeout(timeout);
       script.remove();
@@ -830,27 +831,43 @@ const requestBilibiliTopArc = async (vmid) => {
     const response = await fetch(url, { mode: "cors" });
     if (response.ok) {
       const payload = await response.json();
-      return { payload, method: "fetch" };
+      if (payload?.code === 0) return { payload, method: "fetch" };
     }
   } catch {
     // Some browsers or deployments may block Bilibili CORS; JSONP is the static-site fallback.
   }
+  try {
+    const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`;
+    const response = await fetch(proxyUrl, { mode: "cors" });
+    if (response.ok) {
+      const payload = await response.json();
+      if (payload?.code === 0) return { payload, method: "proxy" };
+    }
+  } catch {
+    // Public proxy may be unavailable; JSONP is tried next.
+  }
   const payload = await requestJsonp(url);
+  if (payload?.code !== 0) throw new Error(`Bilibili top arc returned code ${payload?.code}`);
   return { payload, method: "jsonp" };
 };
 
-const requestBilibiliView = async (bvid) => {
-  const url = `https://api.bilibili.com/x/web-interface/view?bvid=${encodeURIComponent(bvid)}`;
+const requestBilibiliView = async (id) => {
+  const idText = String(id || "");
+  const isAid = /^\d+$/.test(idText);
+  const url = isAid
+    ? `https://api.bilibili.com/x/web-interface/view?aid=${encodeURIComponent(idText)}`
+    : `https://api.bilibili.com/x/web-interface/view?bvid=${encodeURIComponent(idText)}`;
   try {
     const response = await fetch(url, { mode: "cors" });
     if (response.ok) {
       const payload = await response.json();
-      return { payload, method: "view-fetch" };
+      if (payload?.code === 0) return { payload, method: "view-fetch" };
     }
   } catch {
     // JSONP fallback below keeps this working as a plain static page.
   }
   const payload = await requestJsonp(url);
+  if (payload?.code !== 0) throw new Error(`Bilibili view returned code ${payload?.code}`);
   return { payload, method: "view-jsonp" };
 };
 
@@ -860,12 +877,13 @@ const requestBilibiliUserInfo = async (vmid) => {
     const response = await fetch(url, { mode: "cors" });
     if (response.ok) {
       const payload = await response.json();
-      return { payload, method: "user-fetch" };
+      if (payload?.code === 0) return { payload, method: "user-fetch" };
     }
   } catch {
     // JSONP fallback below.
   }
   const payload = await requestJsonp(url);
+  if (payload?.code !== 0) throw new Error(`Bilibili user info returned code ${payload?.code}`);
   return { payload, method: "user-jsonp" };
 };
 
@@ -882,7 +900,13 @@ const updateHeaderAvatarFromBilibili = async () => {
   }
 };
 
+let bilibiliRefreshTimer = 0;
+let bilibiliRefreshInFlight = false;
+let bilibiliRefreshFailures = 0;
+
 const updateBilibiliModuleFromApi = async () => {
+  if (bilibiliRefreshInFlight) return false;
+  bilibiliRefreshInFlight = true;
   const data = {
     ...content.bilibiliModule,
     vmid: profileData.bilibiliVmid || content.bilibiliModule.vmid,
@@ -891,24 +915,35 @@ const updateBilibiliModuleFromApi = async () => {
   const root = document.querySelector("[data-bilibili-module]");
   const vmid = data.vmid || "74399560";
   try {
-    root.dataset.biliStatus = "loading";
     const fallbackBvid = extractBvid(data.url);
-    let method = "";
-    let response = null;
+    let method = "top";
+    root.dataset.biliStatus = "loading-top";
+    let topVideo = null;
     try {
       const topArc = await requestBilibiliTopArc(vmid);
-      response = topArc.payload;
-      method = topArc.method;
+      topVideo = topArc.payload?.data;
+      method = `top-${topArc.method}`;
     } catch {
-      if (!fallbackBvid) throw new Error("Missing Bilibili BV id");
+      // Fall back to the local BV only when the homepage pinned-video request is unavailable.
+    }
+    root.dataset.biliStatus = "loading-detail";
+    let response = null;
+    if (topVideo?.bvid || topVideo?.aid) {
+      const view = await requestBilibiliView(topVideo.bvid || topVideo.aid);
+      response = view.payload;
+      method = `${method}+${view.method}`;
+    } else if (fallbackBvid) {
       const view = await requestBilibiliView(fallbackBvid);
       response = view.payload;
-      method = view.method;
+      method = `fallback-${view.method}`;
+    } else {
+      throw new Error("Missing Bilibili pinned video and fallback BV id");
     }
     const video = response?.data;
     if (!video?.bvid && !video?.aid) {
       root.dataset.biliStatus = "fallback-empty";
-      return;
+      bilibiliRefreshFailures += 1;
+      return false;
     }
     const dynamicImage = normalizeBilibiliImage(video.pic || "");
     const usableDynamicImage = dynamicImage && (await imageExists(dynamicImage)) ? dynamicImage : data.image;
@@ -916,7 +951,11 @@ const updateBilibiliModuleFromApi = async () => {
       ...data,
       title: video.title || data.title,
       owner: video.owner?.name || data.owner,
-      url: video.bvid ? `https://www.bilibili.com/video/${video.bvid}` : data.url,
+      url: video.bvid
+        ? `https://www.bilibili.com/video/${video.bvid}`
+        : video.aid
+          ? `https://www.bilibili.com/video/av${video.aid}`
+          : data.url,
       image: usableDynamicImage,
       fallbackImage: data.image,
       stats: [
@@ -925,7 +964,7 @@ const updateBilibiliModuleFromApi = async () => {
         `收藏 ${formatCount(video.stat?.favorite)}`,
         `评论 ${formatCount(video.stat?.reply)}`,
       ],
-      text: video.desc || data.text,
+      text: video.desc || video.dynamic || "这个视频暂时没有公开简介。",
       source: "",
     };
     const ownerAvatar = normalizeBilibiliImage(video.owner?.face || "");
@@ -934,11 +973,27 @@ const updateBilibiliModuleFromApi = async () => {
     }
     renderExternalModule("[data-bilibili-module]", dynamicData, root?._externalOptions || { kicker: "Bilibili" });
     document.querySelector("[data-bilibili-module]").dataset.biliStatus = method;
-    syncExternalModuleHeights();
+    document.querySelector("[data-bilibili-module]")?._externalApply?.();
+    bilibiliRefreshFailures = 0;
+    return true;
   } catch {
     root.dataset.biliStatus = "fallback-error";
     // Keep the local fallback content when Bilibili blocks or rate-limits the request.
+    bilibiliRefreshFailures += 1;
+    return false;
+  } finally {
+    bilibiliRefreshInFlight = false;
   }
+};
+
+const scheduleBilibiliRefresh = (delay = 0) => {
+  window.clearTimeout(bilibiliRefreshTimer);
+  bilibiliRefreshTimer = window.setTimeout(async () => {
+    const ok = await updateBilibiliModuleFromApi();
+    const retryDelays = [15000, 30000, 60000, 120000, 300000];
+    const nextDelay = ok ? 60000 : retryDelays[Math.min(bilibiliRefreshFailures - 1, retryDelays.length - 1)];
+    scheduleBilibiliRefresh(nextDelay);
+  }, delay);
 };
 
 const fitExternalCard = (root) => {
@@ -986,22 +1041,7 @@ const fitExternalCard = (root) => {
 };
 
 const syncExternalModuleHeights = () => {
-  const cards = [...document.querySelectorAll(".external-card")];
-  cards.forEach((root) => root.style.removeProperty("--external-card-min-height"));
-  cards.forEach((root) => root.style.removeProperty("--external-synced-image-height"));
-  cards.forEach((root) => root._externalApply?.());
-  if (window.matchMedia("(max-width: 720px)").matches) return;
-  requestAnimationFrame(() => {
-    const imageHeights = cards.map((root) => Math.ceil(root.querySelector(".external-image")?.getBoundingClientRect().height || 0));
-    const maxImageHeight = Math.max(...imageHeights, 0);
-    if (maxImageHeight) {
-      cards.forEach((root) => root.style.setProperty("--external-synced-image-height", `${maxImageHeight}px`));
-      cards.forEach((root) => root._externalApply?.());
-    }
-    const maxHeight = Math.max(...cards.map((root) => Math.ceil(root.getBoundingClientRect().height)), 0);
-    if (!maxHeight) return;
-    cards.forEach((root) => root.style.setProperty("--external-card-min-height", `${maxHeight}px`));
-  });
+  document.querySelectorAll(".external-card").forEach((root) => root._externalApply?.());
 };
 
 const maintainedBilibiliModule = {
@@ -1021,4 +1061,4 @@ renderExternalModule("[data-fanqie-module]", content.fanqieModule, {
 syncExternalModuleHeights();
 window.addEventListener("resize", syncExternalModuleHeights);
 updateHeaderAvatarFromBilibili();
-updateBilibiliModuleFromApi();
+scheduleBilibiliRefresh(0);
