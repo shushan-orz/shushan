@@ -1,5 +1,5 @@
 ﻿window.PORTFOLIO_MANIFEST = {
-    "generatedAt":  "2026-06-04 09:53:06",
+    "generatedAt":  "2026-06-04 10:55:07",
     "profile":  {
                     "siteTitle":  "SHUSHAN",
                     "nickname":  "书山压力大",
@@ -39,7 +39,7 @@
     "modelingWorks":  [
                           {
                               "title":  "RX-78-2 Gundam",
-                              "image":  "assets/维护入口/模型/01-RX-78-2 Gundam.jpg",
+                              "image":  "assets/维护入口/模型/01-RX-78-2 Gundam.png",
                               "tag":  "Modeling"
                           },
                           {
