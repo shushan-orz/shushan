@@ -42,6 +42,12 @@ const renderHeaderContact = (avatar = profileData.avatar) => {
       })
       .join("")}
   `;
+  const avatarImage = headerContact.querySelector(".header-avatar");
+  avatarImage.onerror = () => {
+    if (avatarImage.getAttribute("src") !== profileData.avatar) {
+      avatarImage.src = profileData.avatar;
+    }
+  };
 };
 
 renderHeaderContact();
@@ -728,6 +734,7 @@ const renderExternalModule = (selector, data, options = {}) => {
   const root = document.querySelector(selector);
   root._externalOptions = options;
   root._externalData = data;
+  const fallbackImage = data.fallbackImage || data.image;
   root.innerHTML = `
     <div class="external-image" role="img" aria-label="${data.title}">
       <img src="${data.image}" alt="${data.title}" loading="lazy">
@@ -747,6 +754,12 @@ const renderExternalModule = (selector, data, options = {}) => {
       ${options.showSource && data.source ? `<small>${data.source}</small>` : ""}
     </div>
   `;
+  const externalImage = root.querySelector(".external-image img");
+  externalImage.onerror = () => {
+    if (fallbackImage && externalImage.getAttribute("src") !== fallbackImage) {
+      externalImage.src = fallbackImage;
+    }
+  };
   fitExternalCard(root);
 };
 
@@ -843,7 +856,7 @@ const updateHeaderAvatarFromBilibili = async () => {
   try {
     const { payload } = await requestBilibiliUserInfo(profileData.bilibiliVmid);
     const avatar = normalizeBilibiliImage(payload?.data?.face || "");
-    if (avatar) renderHeaderContact(avatar);
+    if (avatar && (await imageExists(avatar))) renderHeaderContact(avatar);
   } catch {
     // Keep the local fallback avatar from the maintenance entry.
   }
@@ -877,12 +890,15 @@ const updateBilibiliModuleFromApi = async () => {
       root.dataset.biliStatus = "fallback-empty";
       return;
     }
+    const dynamicImage = normalizeBilibiliImage(video.pic || "");
+    const usableDynamicImage = dynamicImage && (await imageExists(dynamicImage)) ? dynamicImage : data.image;
     const dynamicData = {
       ...data,
       title: video.title || data.title,
       owner: video.owner?.name || data.owner,
       url: video.bvid ? `https://www.bilibili.com/video/${video.bvid}` : data.url,
-      image: normalizeBilibiliImage(video.pic || data.image),
+      image: usableDynamicImage,
+      fallbackImage: data.image,
       stats: [
         `播放 ${formatCount(video.stat?.view ?? video.stat?.vv)}`,
         `点赞 ${formatCount(video.stat?.like)}`,
@@ -893,7 +909,7 @@ const updateBilibiliModuleFromApi = async () => {
       source: "",
     };
     const ownerAvatar = normalizeBilibiliImage(video.owner?.face || "");
-    if (ownerAvatar) renderHeaderContact(ownerAvatar);
+    if (ownerAvatar && (await imageExists(ownerAvatar))) renderHeaderContact(ownerAvatar);
     renderExternalModule("[data-bilibili-module]", dynamicData, root?._externalOptions || { kicker: "Bilibili" });
     document.querySelector("[data-bilibili-module]").dataset.biliStatus = method;
     syncExternalModuleHeights();
