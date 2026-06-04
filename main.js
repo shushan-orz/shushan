@@ -775,21 +775,65 @@ const renderBlueprintGraph = (graph, activeBlueprint) => {
 
   if (!stage.dataset.bound) {
     stage.dataset.bound = "true";
+    stage._activePointers = new Map();
+    const getPointerPair = () => [...stage._activePointers.values()].slice(0, 2);
+    const getPinchSnapshot = () => {
+      const [a, b] = getPointerPair();
+      if (!a || !b) return null;
+      const rect = stage.getBoundingClientRect();
+      const centerX = (a.clientX + b.clientX) / 2 - rect.left;
+      const centerY = (a.clientY + b.clientY) / 2 - rect.top;
+      const distance = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+      return { centerX, centerY, distance };
+    };
     stage.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
       const viewerState = stage._blueprintState;
-      viewerState.drag = {
-        id: event.pointerId,
-        startX: event.clientX,
-        startY: event.clientY,
-        originX: viewerState.x,
-        originY: viewerState.y,
-      };
+      stage._activePointers.set(event.pointerId, { id: event.pointerId, clientX: event.clientX, clientY: event.clientY });
       stage.setPointerCapture(event.pointerId);
+      if (stage._activePointers.size >= 2) {
+        const pinch = getPinchSnapshot();
+        if (pinch?.distance) {
+          viewerState.drag = null;
+          viewerState.pinch = {
+            startDistance: pinch.distance,
+            startScale: viewerState.scale,
+            graphX: (pinch.centerX - viewerState.x) / viewerState.scale,
+            graphY: (pinch.centerY - viewerState.y) / viewerState.scale,
+          };
+        }
+      } else {
+        viewerState.drag = {
+          id: event.pointerId,
+          startX: event.clientX,
+          startY: event.clientY,
+          originX: viewerState.x,
+          originY: viewerState.y,
+        };
+      }
       stage.dataset.dragging = "true";
     });
 
     stage.addEventListener("pointermove", (event) => {
       const viewerState = stage._blueprintState;
+      if (stage._activePointers.has(event.pointerId)) {
+        stage._activePointers.set(event.pointerId, { id: event.pointerId, clientX: event.clientX, clientY: event.clientY });
+      }
+      if (stage._activePointers.size >= 2 && viewerState.pinch) {
+        event.preventDefault();
+        const pinch = getPinchSnapshot();
+        if (!pinch?.distance) return;
+        const nextScale = clamp(
+          viewerState.pinch.startScale * (pinch.distance / viewerState.pinch.startDistance),
+          minScale,
+          maxScale,
+        );
+        viewerState.x = pinch.centerX - viewerState.pinch.graphX * nextScale;
+        viewerState.y = pinch.centerY - viewerState.pinch.graphY * nextScale;
+        viewerState.scale = nextScale;
+        applyTransform(viewerState);
+        return;
+      }
       const drag = viewerState.drag;
       if (!drag || drag.id !== event.pointerId) return;
       const panScale = Math.sqrt(Math.max(viewerState.scale, minScale));
@@ -798,10 +842,24 @@ const renderBlueprintGraph = (graph, activeBlueprint) => {
       applyTransform(viewerState);
     });
 
-    const endDrag = () => {
+    const endDrag = (event) => {
       const viewerState = stage._blueprintState;
-      if (viewerState) viewerState.drag = null;
-      stage.dataset.dragging = "false";
+      stage._activePointers.delete(event.pointerId);
+      if (!viewerState) return;
+      viewerState.pinch = null;
+      viewerState.drag = null;
+      if (stage._activePointers.size === 1) {
+        const [remaining] = getPointerPair();
+        viewerState.drag = {
+          id: remaining.id,
+          startX: remaining.clientX,
+          startY: remaining.clientY,
+          originX: viewerState.x,
+          originY: viewerState.y,
+        };
+      } else {
+        stage.dataset.dragging = "false";
+      }
     };
 
     stage.addEventListener("pointerup", endDrag);
