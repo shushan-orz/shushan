@@ -847,8 +847,8 @@ h1 {
 .fanqie-card .external-image {
   aspect-ratio: 3 / 4;
   width: auto;
-  height: var(--external-reference-height, clamp(166px, 19.6vw, 210px));
-  max-height: var(--external-reference-height, none);
+  height: clamp(166px, 19.6vw, 210px);
+  max-height: 210px;
 }
 
 .fanqie-card .external-image img {
@@ -866,6 +866,10 @@ h1 {
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
+}
+
+.external-card[data-fit-ready="false"] .external-body {
+  visibility: hidden;
 }
 
 .external-body h2 {

@@ -734,6 +734,7 @@ const renderExternalModule = (selector, data, options = {}) => {
   const root = document.querySelector(selector);
   root._externalOptions = options;
   root._externalData = data;
+  root.dataset.fitReady = "false";
   const fallbackImage = data.fallbackImage || data.image;
   root.innerHTML = `
     <div class="external-image" role="img" aria-label="${data.title}">
@@ -937,6 +938,8 @@ const fitExternalCard = (root) => {
       body.style.setProperty("--external-text-scale", nextScale.toFixed(3));
       if (neededHeight > imageHeight && attempt < 5 && nextScale > 0.48) {
         requestAnimationFrame(() => shrinkToFit(attempt + 1));
+      } else {
+        root.dataset.fitReady = "true";
       }
     };
     requestAnimationFrame(() => shrinkToFit());
@@ -954,17 +957,7 @@ const fitExternalCard = (root) => {
 };
 
 const syncExternalModuleHeights = () => {
-  const bilibili = document.querySelector("[data-bilibili-module]");
-  const fanqie = document.querySelector("[data-fanqie-module]");
-  const bilibiliImage = bilibili?.querySelector(".external-image");
-  if (!bilibiliImage || !fanqie) return;
-  const referenceHeight = Math.round(bilibiliImage.getBoundingClientRect().height);
-  if (!referenceHeight) return;
-  const nextHeight = `${referenceHeight}px`;
-  if (fanqie.style.getPropertyValue("--external-reference-height") !== nextHeight) {
-    fanqie.style.setProperty("--external-reference-height", nextHeight);
-    requestAnimationFrame(() => fanqie._externalApply?.());
-  }
+  document.querySelectorAll(".external-card").forEach((root) => root._externalApply?.());
 };
 
 const maintainedBilibiliModule = {
