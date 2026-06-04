@@ -17,7 +17,77 @@ const profileData = {
   avatar: getProfileValue("fallbackAvatar", content.profile.avatar),
   bilibiliVmid: getProfileValue("bilibiliVmid", content.bilibiliModule.vmid),
   bilibiliHomepage: getProfileValue("bilibiliHomepage", content.bilibiliModule.homepage),
+  themePreset: getProfileValue("themePreset", "0"),
 };
+
+const themeStorageKey = "portfolio-theme-preset";
+const getSavedThemePreset = () => {
+  try {
+    return window.localStorage.getItem(themeStorageKey);
+  } catch {
+    return "";
+  }
+};
+const setSavedThemePreset = (theme) => {
+  try {
+    window.localStorage.setItem(themeStorageKey, theme);
+  } catch {
+    // Theme switching still works when local storage is blocked.
+  }
+};
+const normalizeThemePreset = (theme) => (["0", "1", "2", "3"].includes(String(theme).trim()) ? String(theme).trim() : "0");
+const getActiveThemePreset = () => document.documentElement.dataset.themePreset || "0";
+const applyThemePreset = (nextTheme = getSavedThemePreset() || profileData.themePreset || "0") => {
+  const theme = normalizeThemePreset(nextTheme);
+  document.documentElement.dataset.themePreset = theme;
+  document.querySelectorAll("[data-theme-option]").forEach((button) => {
+    button.dataset.active = String(button.dataset.themeOption === theme);
+  });
+};
+
+applyThemePreset();
+
+const setupIntroAnimation = () => {
+  const root = document.querySelector("[data-intro-slice]");
+  if (!root || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    root?.remove();
+    return;
+  }
+
+  const size = Math.min(window.innerWidth * 0.74, 680);
+  const barCount = 11;
+  const barHeight = Math.max(30, Math.min(54, size / 13.5));
+  const step = size / barCount;
+  const tones = ["soft", "gold", "dark", "soft"];
+  root.style.setProperty("--intro-size", `${size}px`);
+  root.innerHTML = "";
+
+  for (let index = 0; index < barCount; index += 1) {
+    const distanceFromCorner = (index + 0.62) * step;
+    const center = distanceFromCorner / 2;
+    const length = Math.max(size * 0.24, distanceFromCorner * Math.SQRT2 + barHeight * 3.4);
+    const nearCenter = index / (barCount - 1);
+    const delay = Math.round((1 - nearCenter) ** 1.65 * 260);
+    const exitsLeftDown = index % 2 === 0;
+    const exitDistance = Math.round(size * (1.2 + nearCenter * 0.36));
+    const bar = document.createElement("span");
+    bar.className = "intro-bar";
+    bar.dataset.tone = tones[index % tones.length];
+    bar.style.setProperty("--bar-left", `${center}px`);
+    bar.style.setProperty("--bar-top", `${center}px`);
+    bar.style.setProperty("--bar-width", `${length}px`);
+    bar.style.setProperty("--bar-height", `${barHeight}px`);
+    bar.style.setProperty("--bar-delay", `${delay}ms`);
+    bar.style.setProperty("--bar-duration", `${560 + Math.round((1 - nearCenter) * 130)}ms`);
+    bar.style.setProperty("--exit-x", `${exitsLeftDown ? -exitDistance : exitDistance}px`);
+    bar.style.setProperty("--exit-y", `${exitsLeftDown ? exitDistance : -exitDistance}px`);
+    root.append(bar);
+  }
+
+  window.setTimeout(() => root.remove(), 1040);
+};
+
+setupIntroAnimation();
 
 const tabTitleSuffix = "ciallo～(∠・ω< )⌒☆";
 const updateTabTitle = () => {
@@ -40,13 +110,22 @@ updateFavicon();
 
 const headerContact = document.querySelector("[data-header-contact]");
 
+const bindThemePicker = () => {
+  headerContact.querySelectorAll("[data-theme-option]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const theme = normalizeThemePreset(button.dataset.themeOption);
+      setSavedThemePreset(theme);
+      applyThemePreset(theme);
+    });
+  });
+  applyThemePreset(getActiveThemePreset());
+};
+
 const renderHeaderContact = (avatar = profileData.avatar) => {
-  const phoneHref = profileData.phone ? `tel:${profileData.phone.replace(/[^\d+]/g, "")}` : "";
-  const emailHref = profileData.email ? `mailto:${profileData.email}` : "";
   const headerItems = [
     { label: profileData.nickname },
-    profileData.phone ? { label: profileData.phone, href: phoneHref } : null,
-    profileData.email ? { label: profileData.email, href: emailHref } : null,
+    profileData.phone ? { label: profileData.phone } : null,
+    profileData.email ? { label: profileData.email } : null,
   ].filter(Boolean);
 
   headerContact.innerHTML = `
@@ -58,6 +137,11 @@ const renderHeaderContact = (avatar = profileData.avatar) => {
         return `<${tag} class="header-contact-item"${href}>${item.label}</${tag}>`;
       })
       .join("")}
+    <div class="theme-picker" aria-label="theme switcher">
+      ${["0", "1", "2", "3"]
+        .map((theme) => `<button type="button" data-theme-option="${theme}" aria-label="theme ${theme}"></button>`)
+        .join("")}
+    </div>
   `;
   const avatarImage = headerContact.querySelector(".header-avatar");
   avatarImage.onerror = () => {
@@ -65,6 +149,7 @@ const renderHeaderContact = (avatar = profileData.avatar) => {
       avatarImage.src = profileData.avatar;
     }
   };
+  bindThemePicker();
 };
 
 renderHeaderContact();
@@ -222,6 +307,7 @@ const setupModelingCarousel = () => {
     track.append(clone);
   }
   const slides = [...track.children];
+  const viewport = carousel.querySelector(".modeling-viewport");
   const dots = realSlides.map((slide, slideIndex) => {
     const button = document.createElement("button");
     button.type = "button";
@@ -246,6 +332,19 @@ const setupModelingCarousel = () => {
     }
     isAnimating = false;
   });
+  const syncCarouselHeight = () => {
+    if (!viewport) return;
+    const activeIndex = index === realSlides.length ? 0 : index;
+    const activeSlide = slides[activeIndex];
+    if (!activeSlide) return;
+    const height = Math.ceil(activeSlide.getBoundingClientRect().height);
+    if (height > 0) viewport.style.height = `${height}px`;
+  };
+  track.querySelectorAll("img").forEach((image) => {
+    if (image.complete) return;
+    image.addEventListener("load", syncCarouselHeight, { once: true });
+  });
+  window.addEventListener("resize", syncCarouselHeight);
   const render = () => {
     track.style.transform = `translateX(${-index * 100}%)`;
     slides.forEach((slide, slideIndex) => {
@@ -254,6 +353,7 @@ const setupModelingCarousel = () => {
     dots.forEach((dot, dotIndex) => {
       dot.dataset.active = String((index === realSlides.length ? 0 : index) === dotIndex);
     });
+    requestAnimationFrame(syncCarouselHeight);
   };
   const move = (direction, isManual = false) => {
     if (isAnimating || realSlides.length <= 1) return;
@@ -572,8 +672,12 @@ const renderBlueprintGraph = (graph, activeBlueprint) => {
     if (!moved) break;
   }
   const nodeMap = new Map(graph.nodes.map((node) => [node.id, node]));
-  const maxX = Math.max(...graph.nodes.map((node) => node.x + node.width)) + 120;
-  const maxY = Math.max(...graph.nodes.map((node) => node.y)) + 240;
+  const minX = Math.min(...graph.nodes.map((node) => node.x));
+  const minY = Math.min(...graph.nodes.map((node) => node.y));
+  const maxNodeX = Math.max(...graph.nodes.map((node) => node.x + node.width));
+  const maxNodeY = Math.max(...graph.nodes.map((node) => node.y + node.height));
+  const maxX = maxNodeX + 120;
+  const maxY = maxNodeY + 120;
   const getNodeKind = (node) => {
     const type = `${node.type} ${node.title}`.toLowerCase();
     if (type.includes("comment")) return "comment";
@@ -653,13 +757,21 @@ const renderBlueprintGraph = (graph, activeBlueprint) => {
     ${nodes}
   `;
 
-  const state = { x: -28, y: -42, scale: 0.3, drag: null };
+  const getCenteredState = (scale = 0.3) => ({
+    x: Math.round((stage.clientWidth - (maxNodeX - minX) * scale) / 2 - minX * scale),
+    y: Math.round((stage.clientHeight - (maxNodeY - minY) * scale) / 2 - minY * scale),
+    scale,
+    drag: null,
+  });
+  const state = getCenteredState();
   stage._blueprintState = state;
+  stage._blueprintCenter = getCenteredState;
 
   const applyTransform = (nextState = stage._blueprintState) => {
     canvas.style.transform = `translate(${nextState.x}px, ${nextState.y}px) scale(${nextState.scale})`;
     stage.style.setProperty("--blueprint-scale", nextState.scale.toFixed(2));
   };
+  stage._blueprintApply = applyTransform;
 
   if (!stage.dataset.bound) {
     stage.dataset.bound = "true";
@@ -715,13 +827,14 @@ const renderBlueprintGraph = (graph, activeBlueprint) => {
     );
   }
 
-  document.querySelector("[data-blueprint-reset]")?.addEventListener("click", () => {
-    const viewerState = stage._blueprintState;
-    viewerState.x = -28;
-    viewerState.y = -42;
-    viewerState.scale = 0.3;
-    applyTransform(viewerState);
-  });
+  const resetButton = document.querySelector("[data-blueprint-reset]");
+  if (resetButton && !resetButton.dataset.bound) {
+    resetButton.dataset.bound = "true";
+    resetButton.addEventListener("click", () => {
+      stage._blueprintState = stage._blueprintCenter?.(0.3) || { x: 0, y: 0, scale: 0.3, drag: null };
+      stage._blueprintApply?.(stage._blueprintState);
+    });
+  }
 
   applyTransform(state);
 };

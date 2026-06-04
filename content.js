@@ -5,6 +5,7 @@ window.PORTFOLIO_CONTENT = {
     avatar: "assets/external/bilibili-avatar.jpg",
     phone: "181-1239-6633",
     email: "66646937@qq.com",
+    themePreset: "0",
   },
 
   levelProjects: [],
