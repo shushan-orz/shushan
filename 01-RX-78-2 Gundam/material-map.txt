@@ -1,3 +1,0 @@
-# material=textureSet
-gandam:initialShadingGroup=uv2
-gandam:initialShadingGroup2=uv1
