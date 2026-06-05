@@ -11,6 +11,13 @@ window.PORTFOLIO_CONTENT = {
   levelProjects: [],
   levelAutoProjects: [],
   modelingWorks: [],
+  videos: [],
+  cursorTrail: {
+    enabled: "1",
+    scale: "1",
+    opacity: "0.86",
+    image: "",
+  },
 
   gameProject: {
     title: "入山问剑",
