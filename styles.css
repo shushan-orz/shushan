@@ -1667,15 +1667,24 @@ h1 {
 }
 
 @media (max-width: 720px) {
-  .theme-picker {
-    grid-template-columns: repeat(2, 15px);
-    grid-template-rows: repeat(2, 15px);
-    padding: 5px;
+  .site-header {
+    gap: 12px;
+    padding: 16px 24px;
   }
 
-  .theme-picker button {
-    width: 15px;
-    height: 15px;
+  .nav-links,
+  .theme-picker {
+    display: none;
+  }
+
+  .header-contact {
+    justify-content: flex-start;
+    gap: 8px;
+  }
+
+  .header-contact-item {
+    min-height: 28px;
+    padding: 5px 8px;
   }
 
   .module {
