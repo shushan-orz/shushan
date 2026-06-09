@@ -11,6 +11,7 @@
 - 视频作品：`assets/维护入口/视频`
 - 鼠标拖尾：`assets/维护入口/拖尾`
 - 无缝贴图工具：在网页最后一个模块中直接上传图片使用，不需要维护入口文件。
+- 小游戏：固定尺寸 `16:9` 游戏窗口，内置九款经典小游戏。
 
 修改维护入口里的文件后，在项目根目录运行：
 
@@ -33,6 +34,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\启动本地预览.ps1
 拖尾维护入口里的 `config.txt` 可设置 `enabled`、`scale`、`opacity`；文件夹里有图片时使用图片拖尾，没有图片时使用默认线条拖尾。
 
 无缝贴图工具会在浏览器内计算，不会上传图片。较大的图片会按“最大处理尺寸”自动缩小后再生成结果，便于网页保持流畅。
+
+`assets/维护入口/个人信息/info.txt` 中的 `showLevel`、`showModeling`、`showBlueprint`、`showVideo`、`showBilibili`、`showFanqie`、`showTextureTool`、`showMiniGame` 可控制模块显示：`1` 显示，`0` 关闭。
 
 ## GitHub Pages
 

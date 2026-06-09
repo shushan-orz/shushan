@@ -1,4 +1,4 @@
-const content = window.PORTFOLIO_CONTENT;
+﻿const content = window.PORTFOLIO_CONTENT;
 const manifest = window.PORTFOLIO_MANIFEST || {};
 const hasManifestItems = (items) => Array.isArray(items) && items.length > 0;
 const clampValue = (value, min, max) => Math.min(max, Math.max(min, value));
@@ -21,6 +21,42 @@ const profileData = {
   bilibiliVmid: getProfileValue("bilibiliVmid", content.bilibiliModule.vmid),
   bilibiliHomepage: getProfileValue("bilibiliHomepage", content.bilibiliModule.homepage),
   themePreset: getProfileValue("themePreset", "0"),
+};
+
+const moduleSwitches = {
+  level: getProfileValue("showLevel", "1"),
+  modeling: getProfileValue("showModeling", "1"),
+  game: getProfileValue("showBlueprint", "1"),
+  video: getProfileValue("showVideo", "1"),
+  bilibili: getProfileValue("showBilibili", "1"),
+  fanqie: getProfileValue("showFanqie", "1"),
+  "texture-tool": getProfileValue("showTextureTool", "1"),
+  "mini-game": getProfileValue("showMiniGame", "1"),
+};
+const isModuleEnabled = (value) => String(value ?? "1").trim() !== "0";
+const applyModuleSwitches = () => {
+  const enabledModuleIds = [];
+  let visibleModuleNumber = 0;
+  Object.entries(moduleSwitches).forEach(([id, value]) => {
+    const enabled = isModuleEnabled(value);
+    const section = document.getElementById(id);
+    if (section) section.hidden = !enabled;
+    document.querySelectorAll(`.nav-links a[href="#${id}"]`).forEach((link) => {
+      link.hidden = !enabled;
+    });
+    if (enabled) {
+      enabledModuleIds.push(id);
+      visibleModuleNumber += 1;
+      const moduleIndex = section?.querySelector(".module-header > span");
+      if (moduleIndex) {
+        const originalLabel = moduleIndex.dataset.moduleLabel || moduleIndex.textContent.split("/").slice(1).join("/").trim();
+        moduleIndex.dataset.moduleLabel = originalLabel;
+        moduleIndex.textContent = `${String(visibleModuleNumber).padStart(2, "0")} / ${originalLabel}`;
+      }
+    }
+  });
+  const brand = document.querySelector(".brand");
+  if (brand) brand.href = enabledModuleIds.length ? `#${enabledModuleIds[0]}` : "#";
 };
 
 const themeStorageKey = "portfolio-theme-preset";
@@ -49,6 +85,7 @@ const applyThemePreset = (nextTheme = getSavedThemePreset() || profileData.theme
 };
 
 applyThemePreset();
+applyModuleSwitches();
 
 const setupIntroAnimation = () => {
   const root = document.querySelector("[data-intro-slice]");
@@ -272,13 +309,15 @@ const bindThemePicker = () => {
 
 const renderHeaderContact = (avatar = profileData.avatar) => {
   const headerItems = [
-    { label: profileData.nickname },
     profileData.phone ? { label: profileData.phone } : null,
     profileData.email ? { label: profileData.email } : null,
   ].filter(Boolean);
 
   headerContact.innerHTML = `
-    <img class="header-avatar" src="${avatar}" alt="" loading="lazy">
+    <span class="header-identity">
+      <img class="header-avatar" src="${avatar}" alt="" loading="lazy">
+      <span class="header-contact-item">${profileData.nickname}</span>
+    </span>
     ${headerItems
       .map((item) => {
         const tag = item.href ? "a" : "span";
@@ -1635,14 +1674,25 @@ const bindVideoPlayer = (root, item) => {
   const progress = root.querySelector("[data-video-progress]");
   if (!viewport || !video) return;
   video.volume = Number(volume?.value || 0);
-  let pendingSeekRatio = null;
+  let isSeeking = false;
   const updateProgress = () => {
     if (!progress || !Number.isFinite(video.duration) || video.duration <= 0) return;
-    if (progress.dataset.seeking === "true" || pendingSeekRatio !== null) {
-      if (pendingSeekRatio !== null) progress.value = pendingSeekRatio.toFixed(3);
-      return;
-    }
+    if (isSeeking) return;
     progress.value = (video.currentTime / video.duration).toFixed(3);
+  };
+  const seekToProgress = () => {
+    if (!progress || !Number.isFinite(video.duration) || video.duration <= 0) return;
+    const ratio = Math.max(0, Math.min(1, Number(progress.value) || 0));
+    isSeeking = true;
+    video.currentTime = ratio * video.duration;
+    progress.value = ratio.toFixed(3);
+    video.pause();
+    if (playState) playState.textContent = "已暂停";
+    if (playButton) playButton.textContent = "播放";
+    window.requestAnimationFrame(() => {
+      isSeeking = false;
+      updateProgress();
+    });
   };
   const toggle = async () => {
     if (video.paused) {
@@ -1672,32 +1722,17 @@ const bindVideoPlayer = (root, item) => {
   });
   video.addEventListener("loadedmetadata", updateProgress);
   video.addEventListener("timeupdate", updateProgress);
-  video.addEventListener("seeked", () => {
-    pendingSeekRatio = null;
-    if (progress) progress.dataset.seeking = "false";
-    updateProgress();
-  });
+  video.addEventListener("seeked", updateProgress);
   progress?.addEventListener("pointerdown", () => {
-    progress.dataset.seeking = "true";
+    isSeeking = true;
   });
-  progress?.addEventListener("input", () => {
-    if (!Number.isFinite(video.duration) || video.duration <= 0) return;
-    progress.dataset.seeking = "true";
-    pendingSeekRatio = Number(progress.value);
-    video.currentTime = pendingSeekRatio * video.duration;
-    video.pause();
-    if (playState) playState.textContent = "已暂停";
-    if (playButton) playButton.textContent = "播放";
-  });
+  progress?.addEventListener("input", seekToProgress);
   progress?.addEventListener("pointerup", () => {
-    if (pendingSeekRatio !== null) return;
-    progress.dataset.seeking = "false";
+    isSeeking = false;
     updateProgress();
   });
   progress?.addEventListener("change", () => {
-    if (pendingSeekRatio !== null) return;
-    progress.dataset.seeking = "false";
-    updateProgress();
+    seekToProgress();
   });
   volume?.addEventListener("input", () => {
     video.volume = Number(volume.value);
@@ -1721,10 +1756,9 @@ const renderVideoModule = () => {
         }
         <div class="video-chrome">
           <button class="video-toggle" type="button" data-video-toggle>播放</button>
-          <span data-video-state>点击播放</span>
           <input class="video-progress" data-video-progress type="range" min="0" max="1" step="0.001" value="0" aria-label="播放进度">
-          <label>
-            音量
+          <label class="video-volume">
+            <span>音量</span>
             <input data-video-volume type="range" min="0" max="1" step="0.01" value="0">
           </label>
         </div>
@@ -2534,3 +2568,1338 @@ const setupTextureTool = () => {
 };
 
 setupTextureTool();
+
+const setupMiniGames = () => {
+  const root = document.querySelector("[data-mini-game]");
+  if (!root) return;
+  const canvas = root.querySelector("[data-game-board]");
+  const context = canvas?.getContext("2d");
+  const gameSelect = root.querySelector("[data-game-select]");
+  const gameTitle = root.querySelector("[data-game-title]");
+  const startButton = root.querySelector("[data-game-start]");
+  const scoreName = root.querySelector("[data-score-name]");
+  const scoreLabel = root.querySelector("[data-game-score]");
+  const status = root.querySelector("[data-game-status]");
+  const modeRoot = root.querySelector(".snake-modes");
+  const modeButtons = [...root.querySelectorAll("[data-snake-mode]")];
+  if (!canvas || !context || !gameSelect || !gameTitle || !startButton || !scoreName || !scoreLabel || !status) return;
+
+  const width = canvas.width;
+  const height = canvas.height;
+  const keys = new Set();
+  let currentGame = "snake";
+  let snakeMode = "classic";
+  let active = false;
+  let intervalId = 0;
+  let timeoutId = 0;
+  let animationId = 0;
+  let lastFrame = 0;
+
+  const readColors = () => {
+    const styles = getComputedStyle(document.documentElement);
+    return {
+      board: "#081018",
+      grid: "rgba(255, 255, 255, 0.055)",
+      primary: styles.getPropertyValue("--gold").trim() || "#d8aa68",
+      bright: styles.getPropertyValue("--accent-strong").trim() || "#ffffff",
+      food: "#ef5350",
+      ink: "#f5f7fa",
+    };
+  };
+  const clearBoard = (grid = false) => {
+    const colors = readColors();
+    context.fillStyle = colors.board;
+    context.fillRect(0, 0, width, height);
+    if (!grid) return;
+    context.strokeStyle = colors.grid;
+    context.lineWidth = 1;
+    for (let x = 30; x < width; x += 30) {
+      context.beginPath();
+      context.moveTo(x, 0);
+      context.lineTo(x, height);
+      context.stroke();
+    }
+    for (let y = 30; y < height; y += 30) {
+      context.beginPath();
+      context.moveTo(0, y);
+      context.lineTo(width, y);
+      context.stroke();
+    }
+  };
+  const stopGame = () => {
+    active = false;
+    window.clearInterval(intervalId);
+    window.clearTimeout(timeoutId);
+    window.cancelAnimationFrame(animationId);
+    intervalId = 0;
+    timeoutId = 0;
+    animationId = 0;
+    keys.clear();
+  };
+  const finishGame = (message) => {
+    stopGame();
+    startButton.textContent = "重新开始";
+    status.textContent = message;
+  };
+  const startFrameLoop = (update) => {
+    lastFrame = performance.now();
+    const frame = (time) => {
+      if (!active) return;
+      const delta = Math.min(0.032, (time - lastFrame) / 1000);
+      lastFrame = time;
+      update(delta);
+      animationId = window.requestAnimationFrame(frame);
+    };
+    animationId = window.requestAnimationFrame(frame);
+  };
+  const animateVisual = (duration, drawFrame) =>
+    new Promise((resolve) => {
+      const startedAt = performance.now();
+      const frame = (time) => {
+        const progress = Math.min(1, (time - startedAt) / duration);
+        drawFrame(progress);
+        if (progress < 1) window.requestAnimationFrame(frame);
+        else resolve();
+      };
+      window.requestAnimationFrame(frame);
+    });
+  const playBurstEffect = (drawBase, origins, options = {}) => {
+    const duration = options.duration || 360;
+    const count = options.count || 12;
+    const color = options.color || readColors().bright;
+    animateVisual(duration, (progress) => {
+      drawBase();
+      origins.forEach((origin, originIndex) => {
+        for (let index = 0; index < count; index += 1) {
+          const angle = (Math.PI * 2 * index) / count + originIndex * 0.37;
+          const distance = progress * (options.distance || 44) * (0.55 + (index % 4) * 0.14);
+          const size = Math.max(1, (options.size || 8) * (1 - progress));
+          context.save();
+          context.globalAlpha = 1 - progress;
+          context.translate(origin.x + Math.cos(angle) * distance, origin.y + Math.sin(angle) * distance);
+          context.rotate(angle + progress * 2.4);
+          context.fillStyle = origin.color || color;
+          context.fillRect(-size / 2, -size / 2, size, size);
+          context.restore();
+        }
+      });
+    });
+  };
+  const arcadeParticles = [];
+  const spawnArcadeBurst = (x, y, colors, count = 24, speed = 150) => {
+    for (let index = 0; index < count; index += 1) {
+      const angle = (Math.PI * 2 * index) / count + Math.random() * 0.3;
+      const velocity = speed * (0.55 + Math.random() * 0.75);
+      arcadeParticles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * velocity,
+        vy: Math.sin(angle) * velocity,
+        life: 0.48 + Math.random() * 0.28,
+        maxLife: 0.76,
+        size: 4 + Math.random() * 7,
+        color: colors[index % colors.length],
+      });
+    }
+  };
+  const updateArcadeParticles = (delta) => {
+    for (let index = arcadeParticles.length - 1; index >= 0; index -= 1) {
+      const particle = arcadeParticles[index];
+      particle.life -= delta;
+      if (particle.life <= 0) {
+        arcadeParticles.splice(index, 1);
+        continue;
+      }
+      particle.x += particle.vx * delta;
+      particle.y += particle.vy * delta;
+      particle.vx *= Math.pow(0.035, delta);
+      particle.vy = particle.vy * Math.pow(0.05, delta) + 130 * delta;
+    }
+  };
+  const drawArcadeParticles = () => {
+    arcadeParticles.forEach((particle) => {
+      context.save();
+      context.globalAlpha = Math.max(0, particle.life / particle.maxLife);
+      context.fillStyle = particle.color;
+      context.translate(particle.x, particle.y);
+      context.rotate(particle.life * 7);
+      context.fillRect(-particle.size / 2, -particle.size / 2, particle.size, particle.size);
+      context.restore();
+    });
+  };
+  const pokemonTileColors = ["#69b96b", "#f08a45", "#62a9d8", "#91bd48", "#c58a4d", "#c9a861", "#9b75b8", "#b77b57", "#c2d455", "#8298a8", "#d5b74b", "#b9d9e7"];
+  const pokemonTileImages = Array.from({ length: 12 }, (_, index) => {
+    const image = new Image();
+    image.src = `assets/external/pokemon-tiles/pokemon-${String(index + 1).padStart(3, "0")}.png`;
+    image.addEventListener("load", () => {
+      if (currentGame === "match3") drawMatch3();
+      if (currentGame === "link") drawLinkGame();
+    });
+    return image;
+  });
+  const drawTilePattern = (value, centerX, centerY, radius) => {
+    const image = pokemonTileImages[value % pokemonTileImages.length];
+    context.save();
+    context.imageSmoothingEnabled = false;
+    if (image.complete && image.naturalWidth) {
+      const size = radius * 2.45;
+      context.drawImage(image, centerX - size / 2, centerY - size / 2, size, size);
+    } else {
+      context.fillStyle = "rgba(255,255,255,.86)";
+      context.beginPath();
+      context.arc(centerX, centerY, radius * 0.48, 0, Math.PI * 2);
+      context.fill();
+    }
+    context.restore();
+  };
+
+  const snake = {
+    columns: 32,
+    rows: 18,
+    body: [],
+    foods: [],
+    direction: { x: 1, y: 0 },
+    queued: { x: 1, y: 0 },
+    buffetDelay: 700,
+    score: 0,
+  };
+  const placeSnakeFood = () => {
+    const free = [];
+    for (let y = 0; y < snake.rows; y += 1) {
+      for (let x = 0; x < snake.columns; x += 1) {
+        if (
+          !snake.body.some((part) => part.x === x && part.y === y) &&
+          !snake.foods.some((food) => food.x === x && food.y === y)
+        ) {
+          free.push({ x, y });
+        }
+      }
+    }
+    const food = free[Math.floor(Math.random() * free.length)];
+    if (food) snake.foods.push(food);
+  };
+  const drawSnake = () => {
+    clearBoard(true);
+    const colors = readColors();
+    const size = width / snake.columns;
+    const drawCell = (point, color, inset) => {
+      context.fillStyle = color;
+      context.fillRect(point.x * size + inset, point.y * size + inset, size - inset * 2, size - inset * 2);
+    };
+    snake.foods.forEach((food) => drawCell(food, colors.food, 5));
+    snake.body.forEach((part, index) => drawCell(part, index === 0 ? colors.bright : colors.primary, index === 0 ? 1 : 3));
+  };
+  const scheduleBuffet = () => {
+    window.clearTimeout(timeoutId);
+    if (!active || currentGame !== "snake" || snakeMode !== "buffet") return;
+    timeoutId = window.setTimeout(() => {
+      placeSnakeFood();
+      drawSnake();
+      snake.buffetDelay = Math.max(140, snake.buffetDelay * 0.965);
+      scheduleBuffet();
+    }, snake.buffetDelay);
+  };
+  const stepSnake = () => {
+    snake.direction = snake.queued;
+    const head = { x: snake.body[0].x + snake.direction.x, y: snake.body[0].y + snake.direction.y };
+    const hitWall = head.x < 0 || head.y < 0 || head.x >= snake.columns || head.y >= snake.rows;
+    if (snakeMode === "buffet" && hitWall) {
+      head.x = (head.x + snake.columns) % snake.columns;
+      head.y = (head.y + snake.rows) % snake.rows;
+    }
+    if ((snakeMode !== "buffet" && hitWall) || snake.body.some((part) => part.x === head.x && part.y === head.y)) {
+      finishGame(`游戏结束，得分 ${snake.score}`);
+      drawSnake();
+      return;
+    }
+    snake.body.unshift(head);
+    const eaten = snake.foods.findIndex((food) => food.x === head.x && food.y === head.y);
+    if (eaten >= 0) {
+      const eatenFood = snake.foods[eaten];
+      snake.foods.splice(eaten, 1);
+      snake.score += 1;
+      scoreLabel.textContent = String(snake.score);
+      if (snakeMode === "classic") placeSnakeFood();
+      const size = width / snake.columns;
+      playBurstEffect(drawSnake, [{ x: eatenFood.x * size + size / 2, y: eatenFood.y * size + size / 2, color: readColors().food }], {
+        count: 7,
+        distance: 24,
+        duration: 220,
+      });
+    } else {
+      snake.body.pop();
+    }
+    drawSnake();
+  };
+  const startSnake = () => {
+    snake.body = [{ x: 16, y: 9 }, { x: 15, y: 9 }, { x: 14, y: 9 }];
+    snake.foods = [];
+    snake.direction = { x: 1, y: 0 };
+    snake.queued = { x: 1, y: 0 };
+    snake.buffetDelay = 700;
+    snake.score = 0;
+    scoreLabel.textContent = "0";
+    placeSnakeFood();
+    drawSnake();
+    intervalId = window.setInterval(stepSnake, 105);
+    if (snakeMode === "buffet") scheduleBuffet();
+  };
+
+  const pong = {
+    playerY: 220,
+    playerVelocity: 0,
+    aiY: 220,
+    playerScore: 0,
+    aiScore: 0,
+    ball: { x: 480, y: 270, vx: 330, vy: 170 },
+  };
+  const resetPongBall = (direction = 1) => {
+    pong.ball = { x: width / 2, y: height / 2, vx: 330 * direction, vy: (Math.random() * 220 - 110) || 120 };
+  };
+  const drawPong = () => {
+    clearBoard();
+    const colors = readColors();
+    context.setLineDash([10, 14]);
+    context.strokeStyle = colors.grid;
+    context.lineWidth = 3;
+    context.beginPath();
+    context.moveTo(width / 2, 18);
+    context.lineTo(width / 2, height - 18);
+    context.stroke();
+    context.setLineDash([]);
+    context.fillStyle = colors.primary;
+    context.fillRect(28, pong.playerY, 16, 100);
+    context.fillStyle = colors.bright;
+    context.fillRect(width - 44, pong.aiY, 16, 100);
+    context.beginPath();
+    context.arc(pong.ball.x, pong.ball.y, 11, 0, Math.PI * 2);
+    context.fill();
+  };
+  const updatePong = (delta) => {
+    const previousPlayerY = pong.playerY;
+    if (keys.has("w")) pong.playerY -= 430 * delta;
+    if (keys.has("s")) pong.playerY += 430 * delta;
+    pong.playerY = clampValue(pong.playerY, 0, height - 100);
+    pong.playerVelocity = delta > 0 ? (pong.playerY - previousPlayerY) / delta : 0;
+    pong.aiY += Math.sign(pong.ball.y - (pong.aiY + 50)) * 185 * delta;
+    pong.aiY = clampValue(pong.aiY, 0, height - 100);
+    pong.ball.x += pong.ball.vx * delta;
+    pong.ball.y += pong.ball.vy * delta;
+    if (pong.ball.y <= 11 || pong.ball.y >= height - 11) pong.ball.vy *= -1;
+    const hitPlayer = pong.ball.x <= 48 && pong.ball.x >= 25 && pong.ball.y >= pong.playerY && pong.ball.y <= pong.playerY + 100;
+    const hitAi = pong.ball.x >= width - 48 && pong.ball.x <= width - 25 && pong.ball.y >= pong.aiY && pong.ball.y <= pong.aiY + 100;
+    if (hitPlayer && pong.ball.vx < 0) {
+      pong.ball.vx = Math.abs(pong.ball.vx) * 1.035;
+      pong.ball.vy = clampValue(pong.ball.vy + pong.playerVelocity * 0.72, -520, 520);
+    }
+    if (hitAi && pong.ball.vx > 0) pong.ball.vx = -Math.abs(pong.ball.vx) * 1.025;
+    if (pong.ball.x < -20) {
+      pong.aiScore += 1;
+      resetPongBall(1);
+      playBurstEffect(drawPong, [{ x: 32, y: height / 2, color: readColors().food }], { count: 12, distance: 46 });
+    } else if (pong.ball.x > width + 20) {
+      pong.playerScore += 1;
+      resetPongBall(-1);
+      playBurstEffect(drawPong, [{ x: width - 32, y: height / 2 }], { count: 12, distance: 46 });
+    }
+    scoreLabel.textContent = `${pong.playerScore} : ${pong.aiScore}`;
+    drawPong();
+  };
+  const startPong = () => {
+    pong.playerY = 220;
+    pong.playerVelocity = 0;
+    pong.aiY = 220;
+    pong.playerScore = 0;
+    pong.aiScore = 0;
+    resetPongBall(Math.random() > 0.5 ? 1 : -1);
+    scoreLabel.textContent = "0 : 0";
+    drawPong();
+    startFrameLoop(updatePong);
+  };
+
+  const breakout = {
+    paddleX: 405,
+    ball: { x: 480, y: 440, vx: 250, vy: -280 },
+    bricks: [],
+    score: 0,
+    lives: 3,
+  };
+  const resetBreakoutBall = () => {
+    breakout.paddleX = 405;
+    breakout.ball = { x: width / 2, y: height - 100, vx: Math.random() > 0.5 ? 250 : -250, vy: -280 };
+  };
+  const buildBricks = () => {
+    breakout.bricks = [];
+    for (let row = 0; row < 5; row += 1) {
+      for (let column = 0; column < 12; column += 1) {
+        breakout.bricks.push({ x: 22 + column * 77, y: 34 + row * 34, w: 69, h: 24, alive: true });
+      }
+    }
+  };
+  const drawBreakout = () => {
+    clearBoard();
+    const colors = readColors();
+    breakout.bricks.forEach((brick, index) => {
+      if (!brick.alive) return;
+      context.fillStyle = index % 2 ? colors.primary : colors.bright;
+      context.fillRect(brick.x, brick.y, brick.w, brick.h);
+    });
+    context.fillStyle = colors.primary;
+    context.fillRect(breakout.paddleX, height - 36, 150, 16);
+    context.fillStyle = colors.bright;
+    context.beginPath();
+    context.arc(breakout.ball.x, breakout.ball.y, 10, 0, Math.PI * 2);
+    context.fill();
+    drawArcadeParticles();
+  };
+  const updateBreakout = (delta) => {
+    updateArcadeParticles(delta);
+    if (keys.has("a")) breakout.paddleX -= 440 * delta;
+    if (keys.has("d")) breakout.paddleX += 440 * delta;
+    breakout.paddleX = clampValue(breakout.paddleX, 0, width - 150);
+    breakout.ball.x += breakout.ball.vx * delta;
+    breakout.ball.y += breakout.ball.vy * delta;
+    if (breakout.ball.x <= 10 || breakout.ball.x >= width - 10) breakout.ball.vx *= -1;
+    if (breakout.ball.y <= 10) breakout.ball.vy = Math.abs(breakout.ball.vy);
+    if (
+      breakout.ball.vy > 0 &&
+      breakout.ball.y >= height - 48 &&
+      breakout.ball.y <= height - 20 &&
+      breakout.ball.x >= breakout.paddleX &&
+      breakout.ball.x <= breakout.paddleX + 150
+    ) {
+      breakout.ball.vy = -Math.abs(breakout.ball.vy);
+      breakout.ball.vx += (breakout.ball.x - (breakout.paddleX + 75)) * 2;
+    }
+    for (const brick of breakout.bricks) {
+      if (
+        brick.alive &&
+        breakout.ball.x >= brick.x &&
+        breakout.ball.x <= brick.x + brick.w &&
+        breakout.ball.y >= brick.y &&
+        breakout.ball.y <= brick.y + brick.h
+      ) {
+        brick.alive = false;
+        breakout.ball.vy *= -1;
+        breakout.score += 10;
+        scoreLabel.textContent = String(breakout.score);
+        spawnArcadeBurst(brick.x + brick.w / 2, brick.y + brick.h / 2, [readColors().primary, readColors().bright], 32, 210);
+        break;
+      }
+    }
+    if (breakout.bricks.every((brick) => !brick.alive)) {
+      finishGame(`全部清除，得分 ${breakout.score}`);
+    } else if (breakout.ball.y > height + 15) {
+      breakout.lives -= 1;
+      if (breakout.lives <= 0) finishGame(`游戏结束，得分 ${breakout.score}`);
+      else {
+        status.textContent = `剩余 ${breakout.lives} 条生命`;
+        resetBreakoutBall();
+      }
+    }
+    drawBreakout();
+  };
+  const startBreakout = () => {
+    arcadeParticles.length = 0;
+    breakout.score = 0;
+    breakout.lives = 3;
+    buildBricks();
+    resetBreakoutBall();
+    scoreLabel.textContent = "0";
+    drawBreakout();
+    startFrameLoop(updateBreakout);
+  };
+
+  const shooter = {
+    player: { x: 80, y: 270 },
+    bullets: [],
+    enemies: [],
+    score: 0,
+    spawnClock: 0,
+    shotClock: 0,
+  };
+  const drawShooter = () => {
+    clearBoard();
+    const colors = readColors();
+    context.fillStyle = colors.grid;
+    for (let index = 0; index < 70; index += 1) {
+      const x = (index * 137) % width;
+      const y = (index * 83) % height;
+      context.fillRect(x, y, 2, 2);
+    }
+    context.fillStyle = colors.primary;
+    context.beginPath();
+    context.moveTo(shooter.player.x + 22, shooter.player.y);
+    context.lineTo(shooter.player.x - 20, shooter.player.y - 18);
+    context.lineTo(shooter.player.x - 20, shooter.player.y + 18);
+    context.closePath();
+    context.fill();
+    context.fillStyle = colors.bright;
+    shooter.bullets.forEach((bullet) => context.fillRect(bullet.x, bullet.y - 2, 14, 4));
+    context.fillStyle = colors.food;
+    shooter.enemies.forEach((enemy) => context.fillRect(enemy.x - 15, enemy.y - 12, 30, 24));
+    drawArcadeParticles();
+  };
+  const updateShooter = (delta) => {
+    updateArcadeParticles(delta);
+    const move = 380 * delta;
+    if (keys.has("w")) shooter.player.y -= move;
+    if (keys.has("s")) shooter.player.y += move;
+    shooter.player.y = clampValue(shooter.player.y, 24, height - 24);
+    shooter.spawnClock += delta;
+    shooter.shotClock += delta;
+    if (shooter.spawnClock >= Math.max(0.2, 0.72 - shooter.score * 0.004)) {
+      shooter.spawnClock = 0;
+      shooter.enemies.push({ x: width + 25, y: 24 + Math.random() * (height - 48), speed: 145 + Math.random() * 115 });
+    }
+    if (shooter.shotClock >= 0.16) {
+      shooter.shotClock = 0;
+      shooter.bullets.push({ x: shooter.player.x + 22, y: shooter.player.y });
+    }
+    shooter.bullets.forEach((bullet) => (bullet.x += 590 * delta));
+    shooter.enemies.forEach((enemy) => (enemy.x -= enemy.speed * delta));
+    for (const enemy of shooter.enemies) {
+      const hitPlayer = Math.abs(enemy.x - shooter.player.x) < 30 && Math.abs(enemy.y - shooter.player.y) < 30;
+      if (hitPlayer || enemy.x < -25) {
+        finishGame(`游戏结束，得分 ${shooter.score}`);
+        drawShooter();
+        return;
+      }
+    }
+    shooter.enemies = shooter.enemies.filter((enemy) => {
+      const bulletIndex = shooter.bullets.findIndex((bullet) => Math.abs(bullet.x - enemy.x) < 20 && Math.abs(bullet.y - enemy.y) < 18);
+      if (bulletIndex < 0) return true;
+      shooter.bullets.splice(bulletIndex, 1);
+      shooter.score += 1;
+      scoreLabel.textContent = String(shooter.score);
+      spawnArcadeBurst(enemy.x, enemy.y, [readColors().food, readColors().bright, readColors().primary], 28, 190);
+      return false;
+    });
+    shooter.bullets = shooter.bullets.filter((bullet) => bullet.x < width + 20);
+    drawShooter();
+  };
+  const startShooter = () => {
+    arcadeParticles.length = 0;
+    shooter.player = { x: 80, y: 270 };
+    shooter.bullets = [];
+    shooter.enemies = [];
+    shooter.score = 0;
+    shooter.spawnClock = 0;
+    shooter.shotClock = 0;
+    scoreLabel.textContent = "0";
+    drawShooter();
+    startFrameLoop(updateShooter);
+  };
+
+  const dodge = {
+    player: { x: 465, y: 455, size: 30 },
+    blocks: [],
+    score: 0,
+    spawnClock: 0,
+    elapsed: 0,
+  };
+  const drawDodge = () => {
+    clearBoard(true);
+    const colors = readColors();
+    context.fillStyle = colors.primary;
+    context.fillRect(dodge.player.x, dodge.player.y, dodge.player.size, dodge.player.size);
+    context.fillStyle = colors.food;
+    dodge.blocks.forEach((block) => context.fillRect(block.x, block.y, block.size, block.size));
+  };
+  const updateDodge = (delta) => {
+    const move = 390 * delta;
+    if (keys.has("a")) dodge.player.x -= move;
+    if (keys.has("d")) dodge.player.x += move;
+    if (keys.has("w")) dodge.player.y -= move;
+    if (keys.has("s")) dodge.player.y += move;
+    dodge.player.x = clampValue(dodge.player.x, 0, width - dodge.player.size);
+    dodge.player.y = clampValue(dodge.player.y, 0, height - dodge.player.size);
+    dodge.elapsed += delta;
+    dodge.spawnClock += delta;
+    if (dodge.spawnClock > Math.max(0.14, 0.55 - dodge.elapsed * 0.01)) {
+      dodge.spawnClock = 0;
+      const size = 20 + Math.random() * 34;
+      dodge.blocks.push({ x: Math.random() * (width - size), y: -size, size, speed: 150 + dodge.elapsed * 7 + Math.random() * 110 });
+    }
+    dodge.blocks.forEach((block) => (block.y += block.speed * delta));
+    for (const block of dodge.blocks) {
+      if (
+        dodge.player.x < block.x + block.size &&
+        dodge.player.x + dodge.player.size > block.x &&
+        dodge.player.y < block.y + block.size &&
+        dodge.player.y + dodge.player.size > block.y
+      ) {
+        finishGame(`坚持 ${dodge.score} 秒`);
+        playBurstEffect(drawDodge, [{ x: dodge.player.x + dodge.player.size / 2, y: dodge.player.y + dodge.player.size / 2 }], {
+          count: 18,
+          distance: 62,
+        });
+        drawDodge();
+        return;
+      }
+    }
+    dodge.blocks = dodge.blocks.filter((block) => block.y < height + block.size);
+    dodge.score = Math.floor(dodge.elapsed);
+    scoreLabel.textContent = String(dodge.score);
+    drawDodge();
+  };
+  const startDodge = () => {
+    dodge.player = { x: 465, y: 455, size: 30 };
+    dodge.blocks = [];
+    dodge.score = 0;
+    dodge.spawnClock = 0;
+    dodge.elapsed = 0;
+    scoreLabel.textContent = "0";
+    drawDodge();
+    startFrameLoop(updateDodge);
+  };
+
+  const tetrisShapes = [
+    [[1, 1, 1, 1]],
+    [[1, 1], [1, 1]],
+    [[0, 1, 0], [1, 1, 1]],
+    [[1, 0, 0], [1, 1, 1]],
+    [[0, 0, 1], [1, 1, 1]],
+    [[0, 1, 1], [1, 1, 0]],
+    [[1, 1, 0], [0, 1, 1]],
+  ];
+  const tetris = { columns: 10, rows: 18, board: [], piece: null, nextShape: null, score: 0 };
+  const randomTetrisShape = () => tetrisShapes[Math.floor(Math.random() * tetrisShapes.length)].map((row) => [...row]);
+  const rotatePiece = (shape) => shape[0].map((_, column) => shape.map((row) => row[column]).reverse());
+  const tetrisCollision = (piece, offsetX = 0, offsetY = 0, shape = piece.shape) =>
+    shape.some((row, y) =>
+      row.some((value, x) => {
+        if (!value) return false;
+        const targetX = piece.x + x + offsetX;
+        const targetY = piece.y + y + offsetY;
+        return targetX < 0 || targetX >= tetris.columns || targetY >= tetris.rows || (targetY >= 0 && tetris.board[targetY][targetX]);
+      }),
+    );
+  const spawnTetrisPiece = () => {
+    const shape = tetris.nextShape || randomTetrisShape();
+    tetris.nextShape = randomTetrisShape();
+    tetris.piece = { shape, x: Math.floor((tetris.columns - shape[0].length) / 2), y: 0 };
+    if (tetrisCollision(tetris.piece)) finishGame(`游戏结束，得分 ${tetris.score}`);
+  };
+  const drawTetris = () => {
+    clearBoard();
+    const colors = readColors();
+    const size = 28;
+    const left = (width - tetris.columns * size) / 2;
+    const top = 18;
+    context.strokeStyle = colors.grid;
+    context.strokeRect(left - 2, top - 2, tetris.columns * size + 4, tetris.rows * size + 4);
+    const drawBlock = (x, y, color) => {
+      context.fillStyle = color;
+      context.fillRect(left + x * size + 2, top + y * size + 2, size - 4, size - 4);
+    };
+    tetris.board.forEach((row, y) => row.forEach((value, x) => value && drawBlock(x, y, colors.primary)));
+    tetris.piece?.shape.forEach((row, y) => row.forEach((value, x) => value && drawBlock(tetris.piece.x + x, tetris.piece.y + y, colors.bright)));
+    const previewLeft = left + tetris.columns * size + 54;
+    const previewTop = top + 44;
+    context.fillStyle = colors.ink;
+    context.font = "700 18px sans-serif";
+    context.textAlign = "center";
+    context.fillText("下一块", previewLeft + 58, previewTop - 14);
+    context.strokeStyle = colors.grid;
+    context.strokeRect(previewLeft, previewTop, 116, 116);
+    const nextSize = 22;
+    const nextWidth = (tetris.nextShape?.[0]?.length || 0) * nextSize;
+    const nextHeight = (tetris.nextShape?.length || 0) * nextSize;
+    tetris.nextShape?.forEach((row, y) =>
+      row.forEach((value, x) => {
+        if (!value) return;
+        context.fillStyle = colors.primary;
+        context.fillRect(
+          previewLeft + (116 - nextWidth) / 2 + x * nextSize + 2,
+          previewTop + (116 - nextHeight) / 2 + y * nextSize + 2,
+          nextSize - 4,
+          nextSize - 4,
+        );
+      }),
+    );
+    context.textAlign = "start";
+  };
+  const lockTetrisPiece = () => {
+    tetris.piece.shape.forEach((row, y) =>
+      row.forEach((value, x) => {
+        if (value && tetris.piece.y + y >= 0) tetris.board[tetris.piece.y + y][tetris.piece.x + x] = 1;
+      }),
+    );
+    const clearedRows = tetris.board
+      .map((row, index) => (row.every(Boolean) ? index : -1))
+      .filter((index) => index >= 0);
+    const before = tetris.board.length;
+    tetris.board = tetris.board.filter((row) => row.some((value) => !value));
+    const cleared = before - tetris.board.length;
+    while (tetris.board.length < tetris.rows) tetris.board.unshift(Array(tetris.columns).fill(0));
+    if (cleared) {
+      tetris.score += cleared * cleared * 100;
+      scoreLabel.textContent = String(tetris.score);
+      const size = 28;
+      const left = (width - tetris.columns * size) / 2;
+      const top = 18;
+      playBurstEffect(
+        drawTetris,
+        clearedRows.map((row) => ({ x: left + (tetris.columns * size) / 2, y: top + row * size + size / 2 })),
+        { count: 32, distance: 150, duration: 520, size: 11 },
+      );
+    }
+    spawnTetrisPiece();
+  };
+  const stepTetris = () => {
+    if (!tetris.piece) return;
+    if (tetrisCollision(tetris.piece, 0, 1)) lockTetrisPiece();
+    else tetris.piece.y += 1;
+    drawTetris();
+  };
+  const startTetris = () => {
+    tetris.board = Array.from({ length: tetris.rows }, () => Array(tetris.columns).fill(0));
+    tetris.score = 0;
+    tetris.nextShape = randomTetrisShape();
+    scoreLabel.textContent = "0";
+    spawnTetrisPiece();
+    drawTetris();
+    if (active) intervalId = window.setInterval(stepTetris, 520);
+  };
+
+  const pacman = {
+    columns: 21,
+    rows: 11,
+    walls: [],
+    dots: new Set(),
+    player: { x: 1, y: 1 },
+    direction: { x: 1, y: 0 },
+    queued: { x: 1, y: 0 },
+    ghosts: [],
+    score: 0,
+    moveClock: 0,
+    ghostClock: 0,
+    previousPlayer: { x: 1, y: 1 },
+  };
+  const buildPacmanMaze = () => {
+    pacman.walls = Array.from({ length: pacman.rows }, (_, y) =>
+      Array.from({ length: pacman.columns }, (_, x) => {
+        if (x === 0 || y === 0 || x === pacman.columns - 1 || y === pacman.rows - 1) return 1;
+        if (x % 4 === 0 && y % 3 !== 1) return 1;
+        if (y === 5 && x % 5 !== 2) return 1;
+        return 0;
+      }),
+    );
+    [[1, 1], [19, 9], [10, 3], [10, 7]].forEach(([x, y]) => (pacman.walls[y][x] = 0));
+    pacman.dots = new Set();
+    for (let y = 1; y < pacman.rows - 1; y += 1) {
+      for (let x = 1; x < pacman.columns - 1; x += 1) {
+        if (!pacman.walls[y][x]) pacman.dots.add(`${x},${y}`);
+      }
+    }
+  };
+  const drawPacman = (time = performance.now()) => {
+    clearBoard();
+    const colors = readColors();
+    const size = 40;
+    const left = (width - pacman.columns * size) / 2;
+    const top = (height - pacman.rows * size) / 2;
+    pacman.walls.forEach((row, y) =>
+      row.forEach((wall, x) => {
+        if (!wall) return;
+        context.fillStyle = colors.primary;
+        context.fillRect(left + x * size + 3, top + y * size + 3, size - 6, size - 6);
+      }),
+    );
+    context.fillStyle = colors.bright;
+    pacman.dots.forEach((key) => {
+      const [x, y] = key.split(",").map(Number);
+      context.beginPath();
+      context.arc(left + x * size + size / 2, top + y * size + size / 2, 4, 0, Math.PI * 2);
+      context.fill();
+    });
+    const movementProgress = Math.min(1, pacman.moveClock / 0.18);
+    const playerX = pacman.previousPlayer.x + (pacman.player.x - pacman.previousPlayer.x) * movementProgress;
+    const playerY = pacman.previousPlayer.y + (pacman.player.y - pacman.previousPlayer.y) * movementProgress;
+    const angle = Math.atan2(pacman.direction.y, pacman.direction.x);
+    const mouth = 0.16 + Math.abs(Math.sin(time / 75)) * 0.32;
+    context.save();
+    context.translate(left + playerX * size + size / 2, top + playerY * size + size / 2);
+    context.rotate(angle);
+    context.fillStyle = "#ffd84d";
+    context.beginPath();
+    context.arc(0, 0, 14, mouth, Math.PI * 2 - mouth);
+    context.lineTo(0, 0);
+    context.fill();
+    context.restore();
+    context.fillStyle = colors.food;
+    pacman.ghosts.forEach((ghost) => {
+      const ghostProgress = Math.min(1, pacman.ghostClock / 0.34);
+      const ghostX = (ghost.previous?.x ?? ghost.x) + (ghost.x - (ghost.previous?.x ?? ghost.x)) * ghostProgress;
+      const ghostY = (ghost.previous?.y ?? ghost.y) + (ghost.y - (ghost.previous?.y ?? ghost.y)) * ghostProgress;
+      context.beginPath();
+      context.arc(left + ghostX * size + size / 2, top + ghostY * size + size / 2, 14, Math.PI, 0);
+      context.lineTo(left + ghostX * size + size - 6, top + ghostY * size + size - 7);
+      context.lineTo(left + ghostX * size + 6, top + ghostY * size + size - 7);
+      context.closePath();
+      context.fill();
+    });
+  };
+  const pacmanCanMove = (point, direction) => {
+    const x = point.x + direction.x;
+    const y = point.y + direction.y;
+    return x >= 0 && y >= 0 && x < pacman.columns && y < pacman.rows && !pacman.walls[y][x];
+  };
+  const stepPacmanPlayer = () => {
+    pacman.previousPlayer = { ...pacman.player };
+    if (pacmanCanMove(pacman.player, pacman.queued)) pacman.direction = pacman.queued;
+    if (pacmanCanMove(pacman.player, pacman.direction)) {
+      pacman.player.x += pacman.direction.x;
+      pacman.player.y += pacman.direction.y;
+    }
+    const key = `${pacman.player.x},${pacman.player.y}`;
+    if (pacman.dots.delete(key)) {
+      pacman.score += 1;
+      scoreLabel.textContent = String(pacman.score);
+      const size = 40;
+      const left = (width - pacman.columns * size) / 2;
+      const top = (height - pacman.rows * size) / 2;
+      playBurstEffect(
+        drawPacman,
+        [{ x: left + pacman.player.x * size + size / 2, y: top + pacman.player.y * size + size / 2, color: "#ffd84d" }],
+        { count: 6, distance: 18, duration: 190, size: 5 },
+      );
+    }
+  };
+  const stepPacmanGhosts = () => {
+    const directions = [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }];
+    pacman.ghosts.forEach((ghost) => {
+      ghost.previous = { x: ghost.x, y: ghost.y };
+      const options = directions
+        .filter((direction) => pacmanCanMove(ghost, direction))
+        .sort(
+          (a, b) =>
+            Math.abs(ghost.x + a.x - pacman.player.x) + Math.abs(ghost.y + a.y - pacman.player.y) -
+            (Math.abs(ghost.x + b.x - pacman.player.x) + Math.abs(ghost.y + b.y - pacman.player.y)),
+        );
+      const move = Math.random() < 0.78 ? options[0] : options[Math.floor(Math.random() * options.length)];
+      if (move) {
+        ghost.x += move.x;
+        ghost.y += move.y;
+      }
+    });
+  };
+  const pacmanWasCaught = () => {
+    const playerProgress = Math.min(1, pacman.moveClock / 0.18);
+    const playerX = pacman.previousPlayer.x + (pacman.player.x - pacman.previousPlayer.x) * playerProgress;
+    const playerY = pacman.previousPlayer.y + (pacman.player.y - pacman.previousPlayer.y) * playerProgress;
+    return pacman.ghosts.some((ghost) => {
+      const ghostProgress = Math.min(1, pacman.ghostClock / 0.34);
+      const ghostX = (ghost.previous?.x ?? ghost.x) + (ghost.x - (ghost.previous?.x ?? ghost.x)) * ghostProgress;
+      const ghostY = (ghost.previous?.y ?? ghost.y) + (ghost.y - (ghost.previous?.y ?? ghost.y)) * ghostProgress;
+      const distance = Math.hypot(playerX - ghostX, playerY - ghostY);
+      const crossed =
+        ghost.previous?.x === pacman.player.x &&
+        ghost.previous?.y === pacman.player.y &&
+        ghost.x === pacman.previousPlayer.x &&
+        ghost.y === pacman.previousPlayer.y;
+      return distance < 0.62 || crossed;
+    });
+  };
+  const updatePacman = (delta) => {
+    pacman.moveClock += delta;
+    pacman.ghostClock += delta;
+    if (pacman.moveClock >= 0.18) {
+      pacman.moveClock %= 0.18;
+      stepPacmanPlayer();
+    }
+    if (pacman.ghostClock >= 0.34) {
+      pacman.ghostClock %= 0.34;
+      stepPacmanGhosts();
+    }
+    if (pacmanWasCaught()) {
+      finishGame(`被抓住了，得分 ${pacman.score}`);
+      const size = 40;
+      const left = (width - pacman.columns * size) / 2;
+      const top = (height - pacman.rows * size) / 2;
+      playBurstEffect(
+        drawPacman,
+        [{ x: left + pacman.player.x * size + size / 2, y: top + pacman.player.y * size + size / 2, color: "#ffd84d" }],
+        { count: 18, distance: 70 },
+      );
+      return;
+    }
+    if (!pacman.dots.size) {
+      finishGame(`迷宫清空，得分 ${pacman.score}`);
+      return;
+    }
+    drawPacman();
+  };
+  const startPacman = () => {
+    buildPacmanMaze();
+    pacman.player = { x: 1, y: 1 };
+    pacman.direction = { x: 1, y: 0 };
+    pacman.queued = { x: 1, y: 0 };
+    pacman.previousPlayer = { x: 1, y: 1 };
+    pacman.moveClock = 0;
+    pacman.ghostClock = 0;
+    pacman.ghosts = [
+      { x: 19, y: 9, previous: { x: 19, y: 9 } },
+      { x: 10, y: 3, previous: { x: 10, y: 3 } },
+      { x: 10, y: 7, previous: { x: 10, y: 7 } },
+    ];
+    pacman.score = 0;
+    scoreLabel.textContent = "0";
+    drawPacman();
+    if (active) startFrameLoop(updatePacman);
+  };
+
+  const match3 = { columns: 8, rows: 8, board: [], selected: null, score: 0, colors: 6, animating: false };
+  const buildMatch3 = () => {
+    match3.board = Array.from({ length: match3.rows }, () =>
+      Array.from({ length: match3.columns }, () => Math.floor(Math.random() * match3.colors)),
+    );
+  };
+  const drawMatch3 = (animation = null) => {
+    clearBoard();
+    const palette = pokemonTileColors;
+    const size = 58;
+    const left = (width - match3.columns * size) / 2;
+    const top = (height - match3.rows * size) / 2;
+    const drawTile = (value, x, y, scale = 1) => {
+      if (value < 0) return;
+      const tileSize = (size - 10) * scale;
+      const tileLeft = left + x * size + (size - tileSize) / 2;
+      const tileTop = top + y * size + (size - tileSize) / 2;
+      context.fillStyle = "rgba(5,10,15,.82)";
+      context.fillRect(tileLeft, tileTop, tileSize, tileSize);
+      context.strokeStyle = palette[value];
+      context.lineWidth = 3;
+      context.strokeRect(tileLeft + 1.5, tileTop + 1.5, tileSize - 3, tileSize - 3);
+      drawTilePattern(value, tileLeft + tileSize / 2, tileTop + tileSize / 2, tileSize * 0.41);
+    };
+    match3.board.forEach((row, y) =>
+      row.forEach((value, x) => {
+        const isSwapping =
+          animation?.type === "swap" &&
+          ((animation.a.x === x && animation.a.y === y) || (animation.b.x === x && animation.b.y === y));
+        const isShattering = animation?.type === "shatter" && animation.matches.has(`${x},${y}`);
+        if (!isSwapping && !isShattering) drawTile(value, x, y);
+        if (match3.selected?.x === x && match3.selected?.y === y) {
+          context.strokeStyle = "#ffffff";
+          context.lineWidth = 4;
+          context.strokeRect(left + x * size + 2, top + y * size + 2, size - 4, size - 4);
+        }
+      }),
+    );
+    if (animation?.type === "swap") {
+      const ease = animation.progress * animation.progress * (3 - 2 * animation.progress);
+      const ax = animation.a.x + (animation.b.x - animation.a.x) * ease;
+      const ay = animation.a.y + (animation.b.y - animation.a.y) * ease;
+      const bx = animation.b.x + (animation.a.x - animation.b.x) * ease;
+      const by = animation.b.y + (animation.a.y - animation.b.y) * ease;
+      drawTile(match3.board[animation.a.y][animation.a.x], ax, ay);
+      drawTile(match3.board[animation.b.y][animation.b.x], bx, by);
+    } else if (animation?.type === "shatter") {
+      animation.matches.forEach((key) => {
+        const [x, y] = key.split(",").map(Number);
+        const value = match3.board[y][x];
+        const centerX = left + x * size + size / 2;
+        const centerY = top + y * size + size / 2;
+        const fragment = (size - 12) / 2;
+        const spread = animation.progress * 24;
+        context.globalAlpha = 1 - animation.progress;
+        context.fillStyle = palette[value];
+        [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([dx, dy]) => {
+          context.save();
+          context.translate(centerX + dx * spread, centerY + dy * spread);
+          context.rotate(dx * dy * animation.progress * 0.8);
+          context.fillRect(-fragment / 2, -fragment / 2, fragment, fragment);
+          context.restore();
+        });
+        context.globalAlpha = 1;
+      });
+      animation.specials?.forEach((point) => {
+        const centerX = left + point.x * size + size / 2;
+        const centerY = top + point.y * size + size / 2;
+        context.save();
+        context.globalAlpha = 1 - animation.progress;
+        context.strokeStyle = "#ffffff";
+        context.lineWidth = 5 * (1 - animation.progress) + 1;
+        context.beginPath();
+        context.arc(centerX, centerY, 12 + animation.progress * size * 1.55, 0, Math.PI * 2);
+        context.stroke();
+        context.strokeStyle = "#ffd84d";
+        context.beginPath();
+        context.arc(centerX, centerY, 6 + animation.progress * size, 0, Math.PI * 2);
+        context.stroke();
+        context.restore();
+      });
+    }
+  };
+  const findMatch3Groups = () => {
+    const groups = [];
+    for (let y = 0; y < match3.rows; y += 1) {
+      let x = 0;
+      while (x < match3.columns) {
+        const value = match3.board[y][x];
+        let end = x + 1;
+        while (end < match3.columns && match3.board[y][end] === value) end += 1;
+        if (value >= 0 && end - x >= 3) groups.push(Array.from({ length: end - x }, (_, index) => ({ x: x + index, y })));
+        x = end;
+      }
+    }
+    for (let x = 0; x < match3.columns; x += 1) {
+      let y = 0;
+      while (y < match3.rows) {
+        const value = match3.board[y][x];
+        let end = y + 1;
+        while (end < match3.rows && match3.board[end][x] === value) end += 1;
+        if (value >= 0 && end - y >= 3) groups.push(Array.from({ length: end - y }, (_, index) => ({ x, y: y + index })));
+        y = end;
+      }
+    }
+    return groups;
+  };
+  const findMatch3 = () => new Set(findMatch3Groups().flat().map((point) => `${point.x},${point.y}`));
+  const animateMatch3Swap = (a, b) => animateVisual(190, (progress) => drawMatch3({ type: "swap", a, b, progress }));
+  const settleMatch3 = async (animate = true) => {
+    let groups = findMatch3Groups();
+    let matches = new Set(groups.flat().map((point) => `${point.x},${point.y}`));
+    while (matches.size) {
+      const specials = groups.filter((group) => group.length >= 4).map((group) => group[Math.floor(group.length / 2)]);
+      specials.forEach((point) => {
+        for (let offsetY = -1; offsetY <= 1; offsetY += 1) {
+          for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
+            const x = point.x + offsetX;
+            const y = point.y + offsetY;
+            if (x >= 0 && y >= 0 && x < match3.columns && y < match3.rows) matches.add(`${x},${y}`);
+          }
+        }
+      });
+      if (animate) await animateVisual(360, (progress) => drawMatch3({ type: "shatter", matches, specials, progress }));
+      matches.forEach((key) => {
+        const [x, y] = key.split(",").map(Number);
+        match3.board[y][x] = -1;
+      });
+      match3.score += matches.size * 10 + specials.length * 120;
+      for (let x = 0; x < match3.columns; x += 1) {
+        const values = [];
+        for (let y = match3.rows - 1; y >= 0; y -= 1) if (match3.board[y][x] >= 0) values.push(match3.board[y][x]);
+        for (let y = match3.rows - 1, index = 0; y >= 0; y -= 1, index += 1) {
+          match3.board[y][x] = index < values.length ? values[index] : Math.floor(Math.random() * match3.colors);
+        }
+      }
+      groups = findMatch3Groups();
+      matches = new Set(groups.flat().map((point) => `${point.x},${point.y}`));
+      drawMatch3();
+    }
+    scoreLabel.textContent = String(match3.score);
+    drawMatch3();
+  };
+  const startMatch3 = () => {
+    match3.score = 0;
+    match3.selected = null;
+    match3.animating = false;
+    buildMatch3();
+    settleMatch3(false);
+  };
+
+  const linkGame = { columns: 10, rows: 6, board: [], selected: null, score: 0, path: null, lineTimer: 0 };
+  const buildLinkGame = () => {
+    const values = [];
+    for (let index = 0; index < (linkGame.columns * linkGame.rows) / 2; index += 1) values.push(index % 12, index % 12);
+    values.sort(() => Math.random() - 0.5);
+    linkGame.board = Array.from({ length: linkGame.rows }, (_, y) =>
+      Array.from({ length: linkGame.columns }, (_, x) => values[y * linkGame.columns + x]),
+    );
+  };
+  const drawLinkGame = () => {
+    clearBoard();
+    const palette = pokemonTileColors;
+    const size = 66;
+    const left = (width - linkGame.columns * size) / 2;
+    const top = (height - linkGame.rows * size) / 2;
+    linkGame.board.forEach((row, y) =>
+      row.forEach((value, x) => {
+        if (value < 0) return;
+        context.fillStyle = "rgba(5,10,15,.82)";
+        context.fillRect(left + x * size + 5, top + y * size + 5, size - 10, size - 10);
+        context.strokeStyle = palette[value];
+        context.lineWidth = 3;
+        context.strokeRect(left + x * size + 6.5, top + y * size + 6.5, size - 13, size - 13);
+        drawTilePattern(value, left + x * size + size / 2, top + y * size + size / 2, 25);
+        if (linkGame.selected?.x === x && linkGame.selected?.y === y) {
+          context.strokeStyle = "#ffffff";
+          context.lineWidth = 4;
+          context.strokeRect(left + x * size + 2, top + y * size + 2, size - 4, size - 4);
+        }
+      }),
+    );
+    if (linkGame.path?.length) {
+      context.strokeStyle = "#ffffff";
+      context.lineWidth = 5;
+      context.lineJoin = "round";
+      context.lineCap = "round";
+      context.shadowColor = "rgba(255,255,255,.55)";
+      context.shadowBlur = 10;
+      context.beginPath();
+      linkGame.path.forEach((point, index) => {
+        const px = left + point.x * size + size / 2;
+        const py = top + point.y * size + size / 2;
+        if (index === 0) context.moveTo(px, py);
+        else context.lineTo(px, py);
+      });
+      context.stroke();
+      context.shadowBlur = 0;
+    }
+    context.textAlign = "start";
+  };
+  const canLinkTiles = (start, target) => {
+    const minX = -1;
+    const maxX = linkGame.columns;
+    const minY = -1;
+    const maxY = linkGame.rows;
+    const directions = [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }];
+    const queue = directions.map((direction, index) => ({
+      x: start.x,
+      y: start.y,
+      direction,
+      directionIndex: index,
+      turns: 0,
+      path: [start],
+    }));
+    const seen = new Map();
+    while (queue.length) {
+      const state = queue.shift();
+      const nextX = state.x + state.direction.x;
+      const nextY = state.y + state.direction.y;
+      if (nextX < minX || nextX > maxX || nextY < minY || nextY > maxY) continue;
+      const isTarget = nextX === target.x && nextY === target.y;
+      const inside = nextX >= 0 && nextX < linkGame.columns && nextY >= 0 && nextY < linkGame.rows;
+      if (inside && !isTarget && linkGame.board[nextY][nextX] >= 0) continue;
+      const nextPath = [...state.path, { x: nextX, y: nextY }];
+      if (isTarget) return nextPath;
+      const key = `${nextX},${nextY},${state.directionIndex}`;
+      if ((seen.get(key) ?? 3) <= state.turns) continue;
+      seen.set(key, state.turns);
+      directions.forEach((direction, index) => {
+        const turns = state.turns + (index === state.directionIndex ? 0 : 1);
+        if (turns <= 2) queue.push({ x: nextX, y: nextY, direction, directionIndex: index, turns, path: nextPath });
+      });
+    }
+    return null;
+  };
+  const startLinkGame = () => {
+    linkGame.score = 0;
+    linkGame.selected = null;
+    linkGame.path = null;
+    window.clearTimeout(linkGame.lineTimer);
+    scoreLabel.textContent = "0";
+    buildLinkGame();
+    drawLinkGame();
+  };
+
+  const gameInfo = {
+    snake: { title: "贪吃蛇", score: "得分", status: "点击开始后，使用 W A S D 控制方向", start: startSnake, draw: drawSnake },
+    pong: { title: "经典乒乓", score: "比分", status: "点击开始后，使用 W / S 控制左侧球拍", start: startPong, draw: drawPong },
+    breakout: { title: "打砖块", score: "得分", status: "点击开始后，使用 A / D 控制挡板", start: startBreakout, draw: drawBreakout },
+    shooter: { title: "打飞机", score: "得分", status: "使用 W / S 上下移动，战机会向右自动射击", start: startShooter, draw: drawShooter },
+    tetris: { title: "俄罗斯方块", score: "得分", status: "使用 W 旋转，A / D 移动，S 加速下落，J 切换下一块", start: startTetris, draw: drawTetris },
+    dodge: { title: "躲避方块", score: "秒数", status: "使用 W A S D 移动并尽可能坚持", start: startDodge, draw: drawDodge },
+    pacman: { title: "吃豆人", score: "得分", status: "使用 W A S D 穿过迷宫并吃完豆子", start: startPacman, draw: drawPacman },
+    match3: { title: "消消乐", score: "得分", status: "点击两个相邻方块交换，组成三个或更多同色方块", start: startMatch3, draw: drawMatch3 },
+    link: { title: "连连看", score: "消除", status: "点击两个相同方块，连接路径最多允许两次转弯", start: startLinkGame, draw: drawLinkGame },
+  };
+  const previewGame = () => {
+    const info = gameInfo[currentGame];
+    gameTitle.textContent = info.title;
+    scoreName.textContent = info.score;
+    scoreLabel.textContent = currentGame === "pong" ? "0 : 0" : "0";
+    status.textContent = info.status;
+    startButton.textContent = "开始游戏";
+    modeRoot.hidden = currentGame !== "snake";
+    if (currentGame === "snake") {
+      snake.body = [{ x: 16, y: 9 }, { x: 15, y: 9 }, { x: 14, y: 9 }];
+      snake.foods = [{ x: 23, y: 9 }];
+    } else if (currentGame === "pong") {
+      pong.playerY = 220;
+      pong.aiY = 220;
+      resetPongBall(1);
+    } else if (currentGame === "breakout") {
+      buildBricks();
+      resetBreakoutBall();
+    } else if (currentGame === "shooter") {
+      shooter.player = { x: 80, y: 270 };
+      shooter.bullets = [];
+      shooter.enemies = [];
+    } else if (currentGame === "tetris") {
+      tetris.board = Array.from({ length: tetris.rows }, () => Array(tetris.columns).fill(0));
+      tetris.piece = { shape: tetrisShapes[2].map((row) => [...row]), x: 4, y: 2 };
+      tetris.nextShape = tetrisShapes[5].map((row) => [...row]);
+    } else if (currentGame === "dodge") {
+      dodge.player = { x: 465, y: 455, size: 30 };
+      dodge.blocks = [];
+    } else if (currentGame === "pacman") {
+      buildPacmanMaze();
+      pacman.player = { x: 1, y: 1 };
+      pacman.previousPlayer = { x: 1, y: 1 };
+      pacman.ghosts = [
+        { x: 19, y: 9, previous: { x: 19, y: 9 } },
+        { x: 10, y: 3, previous: { x: 10, y: 3 } },
+        { x: 10, y: 7, previous: { x: 10, y: 7 } },
+      ];
+    } else if (currentGame === "match3") {
+      buildMatch3();
+      match3.selected = null;
+      match3.animating = false;
+    } else if (currentGame === "link") {
+      buildLinkGame();
+      linkGame.selected = null;
+      linkGame.path = null;
+      window.clearTimeout(linkGame.lineTimer);
+    }
+    info.draw();
+  };
+  const startCurrentGame = () => {
+    stopGame();
+    active = true;
+    startButton.textContent = "重新开始";
+    status.textContent = gameInfo[currentGame].status;
+    canvas.focus({ preventScroll: true });
+    gameInfo[currentGame].start();
+  };
+
+  gameSelect.addEventListener("change", () => {
+    stopGame();
+    currentGame = gameSelect.value;
+    previewGame();
+  });
+  startButton.addEventListener("click", startCurrentGame);
+  modeButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      snakeMode = button.dataset.snakeMode === "buffet" ? "buffet" : "classic";
+      modeButtons.forEach((item) => {
+        item.dataset.active = String(item === button);
+      });
+      status.textContent = snakeMode === "buffet" ? "自助餐：持续加速刷新食物并支持穿墙" : "经典：吃掉食物后刷新下一颗";
+      if (active && currentGame === "snake") startCurrentGame();
+    });
+  });
+  canvas.addEventListener("click", async (event) => {
+    canvas.focus({ preventScroll: true });
+    if (!active || !["match3", "link"].includes(currentGame)) return;
+    const rect = canvas.getBoundingClientRect();
+    const canvasX = ((event.clientX - rect.left) / rect.width) * width;
+    const canvasY = ((event.clientY - rect.top) / rect.height) * height;
+    if (currentGame === "match3") {
+      const size = 58;
+      const left = (width - match3.columns * size) / 2;
+      const top = (height - match3.rows * size) / 2;
+      const x = Math.floor((canvasX - left) / size);
+      const y = Math.floor((canvasY - top) / size);
+      if (match3.animating || x < 0 || y < 0 || x >= match3.columns || y >= match3.rows) return;
+      if (!match3.selected) {
+        match3.selected = { x, y };
+      } else {
+        const selected = match3.selected;
+        const adjacent = Math.abs(selected.x - x) + Math.abs(selected.y - y) === 1;
+        match3.selected = null;
+        if (adjacent) {
+          match3.animating = true;
+          await animateMatch3Swap(selected, { x, y });
+          [match3.board[selected.y][selected.x], match3.board[y][x]] = [match3.board[y][x], match3.board[selected.y][selected.x]];
+          if (findMatch3().size) {
+            await settleMatch3(true);
+            match3.animating = false;
+            return;
+          }
+          await animateMatch3Swap(selected, { x, y });
+          [match3.board[selected.y][selected.x], match3.board[y][x]] = [match3.board[y][x], match3.board[selected.y][selected.x]];
+          match3.animating = false;
+        }
+      }
+      drawMatch3();
+    } else {
+      const size = 66;
+      const left = (width - linkGame.columns * size) / 2;
+      const top = (height - linkGame.rows * size) / 2;
+      const x = Math.floor((canvasX - left) / size);
+      const y = Math.floor((canvasY - top) / size);
+      if (x < 0 || y < 0 || x >= linkGame.columns || y >= linkGame.rows || linkGame.board[y][x] < 0) return;
+      if (!linkGame.selected) {
+        linkGame.selected = { x, y };
+      } else {
+        const selected = linkGame.selected;
+        const sameTile = selected.x === x && selected.y === y;
+        const sameValue = linkGame.board[selected.y][selected.x] === linkGame.board[y][x];
+        const path = !sameTile && sameValue ? canLinkTiles(selected, { x, y }) : null;
+        if (path) {
+          const size = 66;
+          const left = (width - linkGame.columns * size) / 2;
+          const top = (height - linkGame.rows * size) / 2;
+          linkGame.board[selected.y][selected.x] = -1;
+          linkGame.board[y][x] = -1;
+          linkGame.path = path;
+          linkGame.score += 2;
+          scoreLabel.textContent = String(linkGame.score);
+          if (linkGame.board.every((row) => row.every((value) => value < 0))) finishGame("全部消除完成");
+          playBurstEffect(
+            drawLinkGame,
+            [
+              { x: left + selected.x * size + size / 2, y: top + selected.y * size + size / 2 },
+              { x: left + x * size + size / 2, y: top + y * size + size / 2 },
+            ],
+            { count: 9, distance: 34, duration: 300 },
+          );
+          window.clearTimeout(linkGame.lineTimer);
+          linkGame.lineTimer = window.setTimeout(() => {
+            linkGame.path = null;
+            if (currentGame === "link") drawLinkGame();
+          }, 420);
+        }
+        linkGame.selected = null;
+      }
+      drawLinkGame();
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    const key = event.key.toLowerCase();
+    if (!active || !["w", "a", "s", "d", "j"].includes(key)) return;
+    event.preventDefault();
+    keys.add(key);
+    if (currentGame === "snake") {
+      const directions = { w: { x: 0, y: -1 }, a: { x: -1, y: 0 }, s: { x: 0, y: 1 }, d: { x: 1, y: 0 } };
+      const next = directions[key];
+      if (next.x !== -snake.direction.x || next.y !== -snake.direction.y) snake.queued = next;
+    } else if (currentGame === "pacman") {
+      pacman.queued = { w: { x: 0, y: -1 }, a: { x: -1, y: 0 }, s: { x: 0, y: 1 }, d: { x: 1, y: 0 } }[key];
+    } else if (currentGame === "tetris" && tetris.piece) {
+      if (key === "a" && !tetrisCollision(tetris.piece, -1, 0)) tetris.piece.x -= 1;
+      if (key === "d" && !tetrisCollision(tetris.piece, 1, 0)) tetris.piece.x += 1;
+      if (key === "s") stepTetris();
+      if (key === "w") {
+        const rotated = rotatePiece(tetris.piece.shape);
+        if (!tetrisCollision(tetris.piece, 0, 0, rotated)) tetris.piece.shape = rotated;
+      }
+      if (key === "j" && tetris.nextShape) {
+        const previousShape = tetris.piece.shape;
+        const nextPiece = {
+          shape: tetris.nextShape,
+          x: clampValue(tetris.piece.x, 0, tetris.columns - tetris.nextShape[0].length),
+          y: tetris.piece.y,
+        };
+        if (!tetrisCollision(nextPiece)) {
+          tetris.piece = nextPiece;
+          tetris.nextShape = previousShape;
+        }
+      }
+      drawTetris();
+    }
+  });
+  document.addEventListener("keyup", (event) => keys.delete(event.key.toLowerCase()));
+  previewGame();
+};
+
+setupMiniGames();
+
+
+
+
+

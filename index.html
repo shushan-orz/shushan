@@ -31,6 +31,7 @@
         <a href="#bilibili">B站</a>
         <a href="#fanqie">番茄小说</a>
         <a href="#texture-tool">贴图工具</a>
+        <a href="#mini-game">小游戏</a>
       </nav>
       <div class="header-contact" data-header-contact></div>
     </header>
@@ -91,9 +92,51 @@
         </div>
         <div class="texture-tool" data-texture-tool></div>
       </section>
+
+      <section class="module mini-game-module" id="mini-game" aria-labelledby="mini-game-title">
+        <div class="module-header">
+          <span>08 / Mini Game</span>
+          <h1 id="mini-game-title">小游戏</h1>
+        </div>
+        <div class="snake-game" data-mini-game>
+          <div class="snake-toolbar">
+            <div>
+              <span>Mini Game</span>
+              <strong data-game-title>贪吃蛇</strong>
+            </div>
+            <label class="game-picker">
+              <span>游戏选择</span>
+              <select data-game-select>
+                <option value="snake">贪吃蛇</option>
+                <option value="pong">经典乒乓</option>
+                <option value="breakout">打砖块</option>
+                <option value="shooter">打飞机</option>
+                <option value="tetris">俄罗斯方块</option>
+                <option value="dodge">躲避方块</option>
+                <option value="pacman">吃豆人</option>
+                <option value="match3">消消乐</option>
+                <option value="link">连连看</option>
+              </select>
+            </label>
+            <div class="snake-modes" aria-label="游戏模式">
+              <button type="button" data-snake-mode="classic" data-active="true">经典</button>
+              <button type="button" data-snake-mode="buffet" data-active="false">自助餐</button>
+            </div>
+            <div class="snake-score"><span data-score-name>得分</span> <strong data-game-score>0</strong></div>
+          </div>
+          <canvas class="snake-board" data-game-board width="960" height="540" tabindex="0" aria-label="小游戏区域"></canvas>
+          <div class="snake-controls">
+            <button type="button" data-game-start>开始游戏</button>
+            <span data-game-status>点击开始后，使用 W A S D 控制方向</span>
+          </div>
+        </div>
+      </section>
     </main>
   </body>
 </html>
+
+
+
 
 
 
